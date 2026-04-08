@@ -12,8 +12,8 @@ const ADMIN_IDS: string[] = (process.env.ADMIN_TELEGRAM_IDS || '').split(',').fi
 interface SessionData {
   state: 'idle'
     | 'awaiting_about'
-    | 'awaiting_car_model'
-    | 'awaiting_car_price'
+    | 'awaiting_goal_type'
+    | 'awaiting_goal_details'
     | 'awaiting_income'
     | 'awaiting_life_areas'
     | 'awaiting_strategy'
@@ -29,8 +29,10 @@ interface SessionData {
   suggestedSubcategories?: SuggestedSubcategory[];
   // Онбординг
   about?: string;
-  carModel?: string;
-  carPrice?: string;
+  goalType?: string;
+  goalTypeEmoji?: string;
+  goalTypeLabel?: string;
+  goalDetails?: string;
   income?: string;
   lifeAreas?: string[];
   strategy?: string;
@@ -182,10 +184,11 @@ function getGoalTitle(sess: SessionData): string {
   if (sess.goalTitle && sess.goalTitle !== 'undefined' && sess.goalTitle.trim() !== '') {
     return sess.goalTitle;
   }
-  if (sess.carModel && sess.carModel !== 'undefined' && sess.carModel.trim() !== '') {
-    return `Купить ${sess.carModel}`;
+  if (sess.goalDetails && sess.goalDetails.trim()) {
+    const prefix = sess.goalTypeLabel ?? 'Цель';
+    return `${prefix}: ${sess.goalDetails}`;
   }
-  return 'Купить машину';
+  return sess.goalTypeLabel ?? 'Моя цель';
 }
 
 // ─── Settings keyboard ─────────────────────────────────────────────────────
@@ -240,13 +243,19 @@ async function handleStart(ctx: Context) {
 }
 
 async function handleGoal(ctx: Context) {
-  setSession(ctx.from!.id, { state: 'awaiting_goal_title' });
+  setSession(ctx.from!.id, { state: 'awaiting_goal_type' });
   return ctx.reply(
-    `🎯 *Постановка новой цели*\n\n` +
-    `Напиши свою большую цель, например:\n` +
-    `• Купить машину\n• Накопить на квартиру\n• Запустить стартап\n• Выучить английский\n\n` +
-    `✏️ Введи название:`,
-    { parse_mode: 'Markdown', ...Markup.removeKeyboard() },
+    `🎯 *Новая цель*\n\nВыбери тип цели:`,
+    {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('🚗 Купить машину', 'goal_type_car'), Markup.button.callback('🏠 Купить квартиру', 'goal_type_apartment')],
+        [Markup.button.callback('💼 Запустить бизнес', 'goal_type_business'), Markup.button.callback('💍 Свадьба', 'goal_type_wedding')],
+        [Markup.button.callback('✈️ Путешествие мечты', 'goal_type_travel'), Markup.button.callback('💪 Фитнес / тело', 'goal_type_fitness')],
+        [Markup.button.callback('📱 Свой проект / стартап', 'goal_type_startup'), Markup.button.callback('💰 Накопить капитал', 'goal_type_capital')],
+        [Markup.button.callback('🎯 Своя цель', 'goal_type_custom')],
+      ]),
+    }
   );
 }
 
@@ -580,9 +589,31 @@ export async function startBot(): Promise<import('telegraf').Telegraf | null> {
     }
 
     // ── Car unknown ─────────────────────────────────────────────────────────
-    if (data === 'car_unknown') {
-      setSession(userId, { carModel: undefined, state: 'awaiting_car_price' });
-      return ctx.reply('💰 Окей! Примерная стоимость машины, которую хочешь? Или напиши "не знаю"');
+    // ── Goal type selection ────────────────────────────────────────────────
+    const goalTypeMap: Record<string, { emoji: string; label: string; question: string }> = {
+      'goal_type_car':       { emoji: '🚗', label: 'Купить машину',        question: 'Какую машину хочешь? Напиши марку/модель или примерный бюджет.' },
+      'goal_type_apartment': { emoji: '🏠', label: 'Купить квартиру',       question: 'В каком городе и примерный бюджет? (например: Москва, 8 млн)' },
+      'goal_type_business':  { emoji: '💼', label: 'Запустить бизнес',      question: 'Что за бизнес хочешь открыть? Опиши в паре слов.' },
+      'goal_type_wedding':   { emoji: '💍', label: 'Свадьба',               question: 'Примерный бюджет на свадьбу или желаемая дата?' },
+      'goal_type_travel':    { emoji: '✈️', label: 'Путешествие мечты',     question: 'Куда хочешь поехать и примерный бюджет поездки?' },
+      'goal_type_fitness':   { emoji: '💪', label: 'Фитнес / тело',         question: 'Какая конкретная цель? Например: сбросить 15 кг, пробежать марафон, накачаться.' },
+      'goal_type_startup':   { emoji: '📱', label: 'Свой проект / стартап', question: 'Что за проект? Опиши идею в 1-2 предложениях.' },
+      'goal_type_capital':   { emoji: '💰', label: 'Накопить капитал',      question: 'Сколько хочешь накопить и к какому сроку? (например: 3 млн за 2 года)' },
+      'goal_type_custom':    { emoji: '🎯', label: 'Своя цель',             question: 'Опиши свою цель — что именно хочешь достичь?' },
+    };
+
+    if (data in goalTypeMap) {
+      const gt = goalTypeMap[data];
+      setSession(userId, {
+        goalType: data,
+        goalTypeEmoji: gt.emoji,
+        goalTypeLabel: gt.label,
+        state: 'awaiting_goal_details',
+      });
+      return ctx.reply(
+        `${gt.emoji} *${gt.label}*\n\n${gt.question}`,
+        { parse_mode: 'Markdown', ...Markup.removeKeyboard() }
+      );
     }
 
     // ── Life areas ──────────────────────────────────────────────────────────
@@ -648,13 +679,12 @@ export async function startBot(): Promise<import('telegraf').Telegraf | null> {
     if (data in strategyMap) {
       const s = getSession(userId);
       const strategy = strategyMap[data];
-      // Устанавливаем goalTitle из carModel если не задан
       const resolvedTitle = getGoalTitle(s);
       setSession(userId, { strategy, goalTitle: resolvedTitle, state: 'awaiting_goal_deadline' });
       const summary = [
         s.about ? `👤 ${s.about}` : null,
-        s.carModel ? `🚗 ${s.carModel}` : null,
-        s.carPrice ? `💰 Цена: ${s.carPrice}` : null,
+        s.goalTypeEmoji && s.goalTypeLabel ? `${s.goalTypeEmoji} ${s.goalTypeLabel}` : null,
+        s.goalDetails ? `📝 ${s.goalDetails}` : null,
         s.income ? `📊 Доход: ${s.income}` : null,
         s.lifeAreas?.length ? `🎯 Сферы: ${s.lifeAreas.join(', ')}` : null,
         `📌 Стратегия: ${strategy}`,
@@ -697,7 +727,7 @@ export async function startBot(): Promise<import('telegraf').Telegraf | null> {
       await ctx.reply('🤖 AI подбирает подкатегории...');
       try {
         const userContext = [
-          sess.about, sess.carModel, sess.carPrice,
+          sess.about, sess.goalTypeLabel, sess.goalDetails,
           sess.income ? `доход ${sess.income}` : null,
           sess.lifeAreas?.length ? `приоритеты: ${sess.lifeAreas.join(', ')}` : null,
           sess.strategy ? `стратегия: ${sess.strategy}` : null,
@@ -761,7 +791,7 @@ export async function startBot(): Promise<import('telegraf').Telegraf | null> {
     if (data === 'confirm_goal') {
       const sess = getSession(userId);
       const title = getGoalTitle(sess);
-      if (!title || title === 'Купить машину' && !sess.goalTitle && !sess.carModel) {
+      if (!title) {
         // нет данных — только если совсем пусто
       }
       if (!sess.suggestedSubcategories?.length) {
@@ -792,7 +822,7 @@ export async function startBot(): Promise<import('telegraf').Telegraf | null> {
         },
       });
 
-      setSession(userId, { state: 'idle', goalTitle: undefined, goalDeadline: undefined, suggestedSubcategories: undefined, about: undefined, carModel: undefined, carPrice: undefined, income: undefined, lifeAreas: undefined, strategy: undefined });
+      setSession(userId, { state: 'idle', goalTitle: undefined, goalDeadline: undefined, suggestedSubcategories: undefined, about: undefined, goalType: undefined, goalTypeEmoji: undefined, goalTypeLabel: undefined, goalDetails: undefined, income: undefined, lifeAreas: undefined, strategy: undefined });
 
       await ctx.reply(
         `🎉 Цель поставлена!\n\n📌 *${title}*\n` +
@@ -900,7 +930,7 @@ export async function startBot(): Promise<import('telegraf').Telegraf | null> {
       await ctx.reply('🤖 AI подбирает подкатегории...');
       try {
         const s = getSession(userId);
-        const userContext = [s.about, s.carModel, s.carPrice, s.income, s.strategy].filter(Boolean).join('; ');
+        const userContext = [s.about, s.goalTypeLabel, s.goalDetails, s.income, s.strategy].filter(Boolean).join('; ');
         let suggested: SuggestedSubcategory[];
         try {
           suggested = await suggestSubcategories(resolvedTitle, userContext || undefined);
@@ -996,27 +1026,28 @@ export async function startBot(): Promise<import('telegraf').Telegraf | null> {
 
     // ── About ─────────────────────────────────────────────────────────────────
     if (sess.state === 'awaiting_about') {
-      setSession(userId, { about: text, state: 'awaiting_car_model' });
+      setSession(userId, { about: text, state: 'awaiting_goal_type' });
       return ctx.reply(
-        '🚗 Отлично! Какую машину хочешь купить?\n\nНапиши модель или нажми кнопку:',
-        { ...Markup.inlineKeyboard([[Markup.button.callback('🤷 Ещё не знаю', 'car_unknown')]]) },
+        '🎯 *Какую цель ставим?*\n\nВыбери из списка или выбери "Своя цель":',
+        {
+          parse_mode: 'Markdown',
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('🚗 Купить машину', 'goal_type_car'), Markup.button.callback('🏠 Купить квартиру', 'goal_type_apartment')],
+            [Markup.button.callback('💼 Запустить бизнес', 'goal_type_business'), Markup.button.callback('💍 Свадьба', 'goal_type_wedding')],
+            [Markup.button.callback('✈️ Путешествие мечты', 'goal_type_travel'), Markup.button.callback('💪 Фитнес / тело', 'goal_type_fitness')],
+            [Markup.button.callback('📱 Свой проект / стартап', 'goal_type_startup'), Markup.button.callback('💰 Накопить капитал', 'goal_type_capital')],
+            [Markup.button.callback('🎯 Своя цель', 'goal_type_custom')],
+          ]),
+        }
       );
     }
 
-    // ── Car model ─────────────────────────────────────────────────────────────
-    if (sess.state === 'awaiting_car_model') {
-      setSession(userId, { carModel: text, state: 'awaiting_car_price' });
+    // ── Goal details ────────────────────────────────────────────────────────
+    if (sess.state === 'awaiting_goal_details') {
+      if (text.length < 2) return ctx.reply('Напиши чуть подробнее 👇');
+      setSession(userId, { goalDetails: text, state: 'awaiting_income' });
       return ctx.reply(
-        `💰 Понял, *${text}*!\n\nПримерная стоимость? (в рублях, например: 2 500 000)\nИли напиши "не знаю"`,
-        { parse_mode: 'Markdown' },
-      );
-    }
-
-    // ── Car price ─────────────────────────────────────────────────────────────
-    if (sess.state === 'awaiting_car_price') {
-      setSession(userId, { carPrice: text, state: 'awaiting_income' });
-      return ctx.reply(
-        '📊 Какой у тебя сейчас доход в месяц?\n\nМожно написать примерно (например: *80 000 ₽* или *150к*)',
+        '📊 Отлично! Какой у тебя сейчас доход в месяц?\n\nМожно примерно (например: *80 000 ₽* или *150к*)',
         { parse_mode: 'Markdown' },
       );
     }
@@ -1041,14 +1072,6 @@ export async function startBot(): Promise<import('telegraf').Telegraf | null> {
     // ── Goal title ────────────────────────────────────────────────────────────
     if (sess.state === 'awaiting_goal_title') {
       if (text.length < 3) return ctx.reply('Название слишком короткое. Напиши подробнее 👇');
-      const isCarGoal = /(машин|авто|тачк|car|bmw|mercedes|toyota|lada|kia|hyundai)/i.test(text);
-      if (isCarGoal) {
-        setSession(userId, { goalTitle: text, state: 'awaiting_car_model' });
-        return ctx.reply(
-          `🚗 Отлично! Какую машину хочешь купить?`,
-          { ...Markup.inlineKeyboard([[Markup.button.callback('Ещё не знаю', 'car_unknown')]]) },
-        );
-      }
       setSession(userId, { goalTitle: text, state: 'awaiting_goal_deadline' });
       return ctx.reply(
         `Отлично! Цель: *"${text}"*\n\nНа какой срок?`,
