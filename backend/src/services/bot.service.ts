@@ -4,6 +4,7 @@ import { analyzeEntry, suggestSubcategories, generateWeeklyReport, SuggestedSubc
 import { updateStreak } from './streak.service';
 import { checkAndAwardBadges, formatBadgeMessage, BADGES } from './badge.service';
 import { checkRateLimit } from './rate-limiter.service';
+import { handleTestCommand, handlePersonaCallback } from './test-panel.service';
 
 // Admin Telegram IDs (добавь своё)
 const ADMIN_IDS: string[] = (process.env.ADMIN_TELEGRAM_IDS || '').split(',').filter(Boolean);
@@ -1176,6 +1177,15 @@ export async function startBot(): Promise<import('telegraf').Telegraf | null> {
     }
 
     return ctx.reply('Используй кнопки меню или команды:\n/entry — записать день\n/progress — прогресс\n/help — справка');
+  });
+
+  // ─── Test panel ───────────────────────────────────────────────────────────
+  bot.command('test', (ctx) => handleTestCommand(ctx, ADMIN_IDS));
+
+  // Persona callbacks (test_persona_sasha, etc.)
+  bot.action(/^test_persona_(.+)$/, async (ctx) => {
+    const key = (ctx.match as RegExpExecArray)[1];
+    await handlePersonaCallback(ctx, key);
   });
 
   // ─── Broadcast (admin only) ──────────────────────────────────────────────
