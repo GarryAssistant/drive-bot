@@ -20,6 +20,7 @@
     "@fastify/rate-limit": "^9.1.0",
     "@fastify/static": "^9.0.0",
     "@prisma/client": "^5.10.0",
+    "@sentry/node": "^10.47.0",
     "bull": "^4.12.2",
     "dotenv": "^16.4.5",
     "fastify": "^4.26.2",

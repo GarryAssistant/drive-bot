@@ -2,6 +2,7 @@ import { Telegraf, Markup, Context } from 'telegraf';
 import { prisma } from './prisma.service';
 import { analyzeEntry, suggestSubcategories, generateWeeklyReport, SuggestedSubcategory } from './ai.service';
 import { updateStreak } from './streak.service';
+import { checkRateLimit } from './rate-limiter.service';
 
 // Admin Telegram IDs (добавь своё)
 const ADMIN_IDS: string[] = (process.env.ADMIN_TELEGRAM_IDS || '').split(',').filter(Boolean);
@@ -459,6 +460,20 @@ export async function startBot(): Promise<import('telegraf').Telegraf | null> {
   await ensureSessionsLoaded();
 
   const bot = new Telegraf(token);
+
+  // ─── Rate limiting middleware ──────────────────────────────────────────────
+  bot.use(async (ctx, next) => {
+    const userId = ctx.from?.id;
+    if (!userId) return next();
+    const { allowed, reason } = checkRateLimit(userId);
+    if (!allowed) {
+      if (reason === 'too_many') {
+        await ctx.reply('⚠️ Слишком много сообщений. Подожди минуту.').catch(() => {});
+      }
+      return; // silently drop too_fast
+    }
+    return next();
+  });
 
   // Commands
   bot.start(handleStart);
@@ -1117,6 +1132,34 @@ export async function startBot(): Promise<import('telegraf').Telegraf | null> {
     }
 
     return ctx.reply('Используй кнопки меню или команды:\n/entry — записать день\n/progress — прогресс\n/help — справка');
+  });
+
+  // ─── Broadcast (admin only) ──────────────────────────────────────────────
+  bot.command('broadcast', async (ctx) => {
+    const tgId = String(ctx.from!.id);
+    if (!ADMIN_IDS.includes(tgId)) return ctx.reply('❌ Только для администраторов');
+
+    const text = ctx.message.text.replace('/broadcast', '').trim();
+    if (!text) return ctx.reply('Укажи текст: /broadcast <сообщение>');
+
+    const users = await prisma.user.findMany({ select: { telegramId: true } });
+    let sent = 0, failed = 0;
+
+    await ctx.reply(`📢 Рассылка ${users.length} пользователям...`);
+
+    for (const u of users) {
+      if (!u.telegramId) continue;
+      try {
+        await bot.telegram.sendMessage(u.telegramId, text, { parse_mode: 'Markdown' });
+        sent++;
+        // Throttle: 30 messages/sec is Telegram limit
+        if (sent % 25 === 0) await new Promise(r => setTimeout(r, 1000));
+      } catch {
+        failed++;
+      }
+    }
+
+    await ctx.reply(`✅ Отправлено: ${sent}\n❌ Ошибок: ${failed}`);
   });
 
   bot.catch((err, ctx) => {

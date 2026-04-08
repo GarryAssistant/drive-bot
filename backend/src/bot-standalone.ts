@@ -1,8 +1,19 @@
 import 'dotenv/config';
+import * as Sentry from '@sentry/node';
 import http from 'http';
 import { startBot } from './services/bot.service';
 import { prisma } from './services/prisma.service';
 import { scheduleDailyReminder, scheduleWeeklyReport } from './services/notification.service';
+
+
+// ─── Sentry (optional — set SENTRY_DSN env var) ───────────────────────────
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    tracesSampleRate: 0.1,
+  });
+  console.log('[Sentry] Initialized');
+}
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const WEBHOOK_URL = process.env.WEBHOOK_URL; // e.g. https://your-app.up.railway.app
