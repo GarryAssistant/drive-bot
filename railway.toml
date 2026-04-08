@@ -1,11 +1,10 @@
 [build]
 builder = "dockerfile"
-dockerfilePath = "Dockerfile"
+dockerfilePath = "Dockerfile.bot"
 
 [deploy]
-startCommand = "sh -c 'npx prisma migrate deploy && node dist/index.js'"
-restartPolicyType = "on_failure"
-restartPolicyMaxRetries = 3
-
-[[services]]
-name = "api"
+startCommand = "sh -c 'npx prisma db push --accept-data-loss && node dist/bot-standalone.js'"
+restartPolicyType = "always"
+restartPolicyMaxRetries = 10
+healthcheckPath = "/health"
+healthcheckTimeout = 30

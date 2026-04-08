@@ -1,4 +1,5 @@
 generator client {
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
   provider = "prisma-client-js"
 }
 
@@ -8,15 +9,20 @@ datasource db {
 }
 
 model User {
-  id         String   @id @default(cuid())
-  telegramId String?  @unique @map("telegram_id")
-  username   String?
-  firstName  String?  @map("first_name")
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
+  id             String    @id @default(cuid())
+  telegramId     String?   @unique @map("telegram_id")
+  username       String?
+  firstName      String?   @map("first_name")
+  notifyHour     Int       @default(21) @map("notify_hour")
+  notifyEnabled  Boolean   @default(true) @map("notify_enabled")
+  lastNotifiedAt DateTime? @map("last_notified_at") @db.Date
+  sessionData    Json?     @map("session_data")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
-  goals   Goal[]
-  entries Entry[]
+  goals     Goal[]
+  entries   Entry[]
+  feedbacks Feedback[]
 
   @@map("users")
 }
@@ -43,12 +49,12 @@ model Subcategory {
   goalId    String   @map("goal_id")
   name      String
   emoji     String   @default("🎯")
-  weight    Float    @default(1.0) // относительный вес при расчёте прогресса
+  weight    Float    @default(1.0)
   color     String   @default("#6366f1")
   createdAt DateTime @default(now()) @map("created_at")
 
-  goal         Goal         @relation(fields: [goalId], references: [id], onDelete: Cascade)
-  entryScores  EntryScore[]
+  goal        Goal         @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  entryScores EntryScore[]
 
   @@map("subcategories")
 }
@@ -57,10 +63,10 @@ model Entry {
   id         String   @id @default(cuid())
   userId     String   @map("user_id")
   goalId     String   @map("goal_id")
-  rawText    String   @map("raw_text") // исходный текст пользователя
+  rawText    String   @map("raw_text")
   date       DateTime @default(now()) @db.Date
-  totalScore Float    @default(0) @map("total_score") // итоговый балл дня (0-100)
-  aiComment  String?  @map("ai_comment") // короткий комментарий от AI
+  totalScore Float    @default(0) @map("total_score")
+  aiComment  String?  @map("ai_comment")
   createdAt  DateTime @default(now()) @map("created_at")
 
   user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -72,13 +78,13 @@ model Entry {
 }
 
 model EntryScore {
-  id             String   @id @default(cuid())
-  entryId        String   @map("entry_id")
-  subcategoryId  String   @map("subcategory_id")
-  score          Float    // 0-10 балл по подкатегории
-  actions        String[] // конкретные действия, которые AI выделил
-  aiComment      String?  @map("ai_comment")
-  createdAt      DateTime @default(now()) @map("created_at")
+  id            String   @id @default(cuid())
+  entryId       String   @map("entry_id")
+  subcategoryId String   @map("subcategory_id")
+  score         Float
+  actions       String[]
+  aiComment     String?  @map("ai_comment")
+  createdAt     DateTime @default(now()) @map("created_at")
 
   entry       Entry       @relation(fields: [entryId], references: [id], onDelete: Cascade)
   subcategory Subcategory @relation(fields: [subcategoryId], references: [id], onDelete: Cascade)
@@ -86,18 +92,29 @@ model EntryScore {
   @@map("entry_scores")
 }
 
-// Для хранения стриков и агрегатов — быстрее, чем считать из entries
 model UserStats {
-  id               String   @id @default(cuid())
-  userId           String   @unique @map("user_id")
-  goalId           String   @map("goal_id")
-  currentStreak    Int      @default(0) @map("current_streak")
-  longestStreak    Int      @default(0) @map("longest_streak")
-  totalScore       Float    @default(0) @map("total_score")
-  totalEntries     Int      @default(0) @map("total_entries")
-  lastEntryDate    DateTime? @map("last_entry_date") @db.Date
-  progressPercent  Float    @default(0) @map("progress_percent")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+  id              String    @id @default(cuid())
+  userId          String    @unique @map("user_id")
+  goalId          String    @map("goal_id")
+  currentStreak   Int       @default(0) @map("current_streak")
+  longestStreak   Int       @default(0) @map("longest_streak")
+  totalScore      Float     @default(0) @map("total_score")
+  totalEntries    Int       @default(0) @map("total_entries")
+  lastEntryDate   DateTime? @map("last_entry_date") @db.Date
+  progressPercent Float     @default(0) @map("progress_percent")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
   @@map("user_stats")
+}
+
+model Feedback {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  text      String
+  rating    Int?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("feedbacks")
 }

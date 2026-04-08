@@ -140,6 +140,17 @@ function getMockWeeklyReport(): WeeklyReport {
   };
 }
 
+
+// ─── Timeout helper ───────────────────────────────────────────────────────────
+async function withTimeout<T>(fn: () => Promise<T>, ms = 30000): Promise<T> {
+  return Promise.race([
+    fn(),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`AI request timed out after ${ms}ms`)), ms)
+    ),
+  ]);
+}
+
 // ─── Основные функции ──────────────────────────────────────────────────────
 
 /**
@@ -187,13 +198,13 @@ export async function analyzeEntry(
 - overallComment должен быть на русском, живым и мотивирующим, не шаблонным.
 - Верни ТОЛЬКО валидный JSON, без пояснений.`;
 
-  const response = await client.chat.completions.create({
+  const response = await withTimeout(() => client.chat.completions.create({
     model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
     messages: [{ role: 'user', content: prompt }],
     response_format: { type: 'json_object' },
     temperature: 0.3,
     max_tokens: 1000,
-  });
+  }), 30000);
 
   const content = response.choices[0]?.message?.content;
   if (!content) throw new Error('Empty response from OpenAI');
@@ -240,13 +251,13 @@ ${goalDescription ? `Описание: "${goalDescription}"` : ''}
 - Сумма всех weight = 1.0
 - Верни ТОЛЬКО валидный JSON`;
 
-  const response = await client.chat.completions.create({
+  const response = await withTimeout(() => client.chat.completions.create({
     model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
     messages: [{ role: 'user', content: prompt }],
     response_format: { type: 'json_object' },
     temperature: 0.5,
     max_tokens: 500,
-  });
+  }), 30000);
 
   const content = response.choices[0]?.message?.content;
   if (!content) throw new Error('Empty response from OpenAI');
@@ -291,13 +302,13 @@ ${entriesSummary.map((e) => `- ${e.date}: балл ${e.totalScore}, активн
 
 Тон: поддерживающий, конкретный, без воды. Верни ТОЛЬКО валидный JSON.`;
 
-  const response = await client.chat.completions.create({
+  const response = await withTimeout(() => client.chat.completions.create({
     model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
     messages: [{ role: 'user', content: prompt }],
     response_format: { type: 'json_object' },
     temperature: 0.4,
     max_tokens: 600,
-  });
+  }), 30000);
 
   const content = response.choices[0]?.message?.content;
   if (!content) throw new Error('Empty response from OpenAI');
