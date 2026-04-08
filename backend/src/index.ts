@@ -11,7 +11,7 @@ import { goalsRoutes } from './routes/goals.routes';
 import { entriesRoutes } from './routes/entries.routes';
 import { progressRoutes } from './routes/progress.routes';
 import { prisma } from './services/prisma.service';
-import { scheduleDailyReminder, scheduleWeeklyReport } from './services/notification.service';
+import { scheduleDailyReminder, scheduleWeeklyReport, scheduleWeeklyPlan } from './services/notification.service';
 import { startBot } from './services/bot.service';
 
 const app = Fastify({

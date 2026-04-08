@@ -17,6 +17,7 @@ model User {
   notifyEnabled  Boolean   @default(true) @map("notify_enabled")
   lastNotifiedAt DateTime? @map("last_notified_at") @db.Date
   sessionData    Json?     @map("session_data")
+  abVariant      String    @default("A") @map("ab_variant")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
@@ -24,7 +25,8 @@ model User {
   entries   Entry[]
   feedbacks Feedback[]
   badges    Badge[]
-  userStats UserStats?
+  userStats   UserStats?
+  weeklyPlans WeeklyPlan[]
 
   @@map("users")
 }
@@ -134,4 +136,19 @@ model Badge {
 
   @@unique([userId, type])
   @@map("badges")
+}
+
+model WeeklyPlan {
+  id         String   @id @default(cuid())
+  userId     String   @map("user_id")
+  goalId     String   @map("goal_id")
+  weekStart  DateTime @map("week_start") @db.Date
+  planText   String   @map("plan_text")
+  aiInsights String?  @map("ai_insights")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, weekStart])
+  @@map("weekly_plans")
 }

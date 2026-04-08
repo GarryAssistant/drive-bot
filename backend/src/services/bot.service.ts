@@ -5,6 +5,9 @@ import { updateStreak } from './streak.service';
 import { checkAndAwardBadges, formatBadgeMessage, BADGES } from './badge.service';
 import { checkRateLimit } from './rate-limiter.service';
 import { handleTestCommand, handlePersonaCallback } from './test-panel.service';
+import { handleDashboard, buildDashPage } from './analytics-dashboard.service';
+import { handleExport } from './export.service';
+import { handleWeeklyPlanCommand } from './weekly-plan.service';
 
 // Admin Telegram IDs (добавь своё)
 const ADMIN_IDS: string[] = (process.env.ADMIN_TELEGRAM_IDS || '').split(',').filter(Boolean);
@@ -82,10 +85,12 @@ function setSession(userId: number, data: Partial<SessionData>): void {
 
 async function getOrCreateUser(ctx: Context) {
   const tg = ctx.from!;
+  // A/B test: randomly assign variant on first registration
+  const abVariant = Math.random() < 0.5 ? 'A' : 'B';
   return prisma.user.upsert({
     where: { telegramId: String(tg.id) },
     update: { username: tg.username, firstName: tg.first_name },
-    create: { telegramId: String(tg.id), username: tg.username, firstName: tg.first_name },
+    create: { telegramId: String(tg.id), username: tg.username, firstName: tg.first_name, abVariant },
   });
 }
 
@@ -235,13 +240,19 @@ async function handleStart(ctx: Context) {
   }
 
   setSession(ctx.from!.id, { state: 'awaiting_about' });
-  return ctx.reply(
-    `Привет, ${name}! 👋\n\n` +
-    `Я Drive — твой AI-трекер на пути к большой цели.\n\n` +
-    `Прежде чем начать, хочу узнать тебя чуть лучше.\n` +
-    `*Расскажи о себе — чем занимаешься, сколько тебе лет?*`,
-    { parse_mode: 'Markdown', ...Markup.removeKeyboard() },
-  );
+  // A/B test: variant B gets a more direct question
+  const freshUser = await prisma.user.findUnique({ where: { telegramId: String(ctx.from!.id) }, select: { abVariant: true } });
+  const isVariantB = (freshUser as any)?.abVariant === 'B';
+  const onboardMsg = isVariantB
+    ? `Привет, ${name}! 👋\n\n` +
+      `Я Drive — AI-трекер для людей с большими целями.\n\n` +
+      `*Скажи: что конкретно ты хочешь достичь — машина, квартира, бизнес?*\n` +
+      `_Чем конкретнее — тем точнее AI настроит трекинг 🎯_`
+    : `Привет, ${name}! 👋\n\n` +
+      `Я Drive — твой AI-трекер на пути к большой цели.\n\n` +
+      `Прежде чем начать, хочу узнать тебя чуть лучше.\n` +
+      `*Расскажи о себе — чем занимаешься, сколько тебе лет?*`;
+  return ctx.reply(onboardMsg, { parse_mode: 'Markdown', ...Markup.removeKeyboard() });
 }
 
 async function handleGoal(ctx: Context) {
@@ -495,6 +506,9 @@ export async function startBot(): Promise<import('telegraf').Telegraf | null> {
   bot.command('week', handleWeeklyReport);
   bot.command('feedback', handleFeedbackCommand);
   bot.command('analytics', handleAnalytics);
+  bot.command('dashboard', (ctx) => handleDashboard(ctx, ADMIN_IDS));
+  bot.command('export', handleExport);
+  bot.command('plan', handleWeeklyPlanCommand);
   bot.command('notify', async (ctx) => {
     const args = ctx.message.text.split(' ');
     const hourStr = args[1];
@@ -523,7 +537,9 @@ export async function startBot(): Promise<import('telegraf').Telegraf | null> {
       `/week — AI-отчёт за неделю\n` +
       `/notify <час> — настроить напоминание (0-23 МСК)\n` +
       `/feedback — оставить отзыв\n` +
-      `/help — эта справка`,
+      `/help — эта справка\n` +
+      `/plan — AI-план на неделю\n` +
+      `/export — экспорт записей в CSV`,
       { parse_mode: 'Markdown' },
     ),
   );

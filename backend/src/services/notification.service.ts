@@ -219,3 +219,20 @@ export function scheduleStreakProtection(): void {
   });
   console.log('[Notification] Streak protection scheduled (19:00 UTC / 22:00 MSK)');
 }
+
+/**
+ * Weekly plan — каждое воскресенье в 19:00 МСК (16:00 UTC)
+ * Генерирует и отправляет AI-план на следующую неделю
+ */
+export function scheduleWeeklyPlan(bot: any): void {
+  cron.schedule('0 16 * * 0', async () => { // Sunday 16:00 UTC = 19:00 MSK
+    console.log('[Cron] Sending weekly plans...');
+    try {
+      const { sendWeeklyPlans } = await import('./weekly-plan.service');
+      await sendWeeklyPlans(bot);
+    } catch (err) {
+      console.error('[Cron] Weekly plan error:', err);
+    }
+  });
+  console.log('[Notification] Weekly plan scheduled (Sunday 16:00 UTC / 19:00 MSK)');
+}

@@ -316,3 +316,66 @@ ${entriesSummary.map((e) => `- ${e.date}: балл ${e.totalScore}, активн
   const parsed = JSON.parse(content);
   return WeeklyReportSchema.parse(parsed);
 }
+
+// ─── Weekly Plan ──────────────────────────────────────────────────────────────
+
+const WeeklyPlanSchema = z.object({
+  planText: z.string(),
+  insights: z.string(),
+});
+export type WeeklyPlanResult = z.infer<typeof WeeklyPlanSchema>;
+
+export async function generateWeeklyPlan(
+  goalTitle: string,
+  subcategories: { name: string; emoji: string; weight: number }[],
+  entriesSummary: { date: string; totalScore: number; topCategories: string[] }[]
+): Promise<WeeklyPlanResult> {
+  const client = getOpenAIClient();
+
+  if (!client) {
+    return {
+      planText: `📅 *План на следующую неделю*\n\n📌 Цель: *${goalTitle}*\n\n` +
+        subcategories.slice(0, 3).map((s, i) => `${i + 1}. ${s.emoji} *${s.name}*\n   • Конкретное действие на эту неделю\n   • Мини-цель по категории`).join('\n\n') +
+        `\n\n💡 _Сгенерировано AI на основе твоей активности_`,
+      insights: 'Продолжай в том же темпе!',
+    };
+  }
+
+  const subcatStr = subcategories.map(s => `${s.emoji} ${s.name} (вес ${Math.round(s.weight * 100)}%)`).join(', ');
+  const historyStr = entriesSummary.length > 0
+    ? entriesSummary.map(e => `- ${e.date}: балл ${e.totalScore}, активные: ${e.topCategories.join(', ')}`).join('\n')
+    : 'Нет данных за прошлую неделю';
+
+  const prompt = `Ты AI-коуч. Составь конкретный план действий на следующую неделю для пользователя.
+
+Цель: "${goalTitle}"
+Категории: ${subcatStr}
+
+Активность за прошлую неделю:
+${historyStr}
+
+Верни JSON:
+{
+  "planText": "текст плана в Markdown для Telegram (используй *bold*, эмодзи). Структура: заголовок, 3-5 конкретных задач по категориям с днями недели, мотивирующий вывод",
+  "insights": "1-2 инсайта по прошлой неделе (что хорошо, что подтянуть)"
+}
+
+Требования к planText:
+- Конкретные задачи (не "думать о цели", а "потратить 30 минут на X")
+- Привязка к дням недели (понедельник, среда, пятница...)
+- Длина: 200-300 слов
+- Заканчивать мотивирующей фразой
+Верни ТОЛЬКО валидный JSON.`;
+
+  const response = await withTimeout(() => client.chat.completions.create({
+    model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+    messages: [{ role: 'user', content: prompt }],
+    response_format: { type: 'json_object' },
+    temperature: 0.5,
+    max_tokens: 800,
+  }), 30000);
+
+  const content = response.choices[0]?.message?.content;
+  if (!content) throw new Error('Empty AI response');
+  return WeeklyPlanSchema.parse(JSON.parse(content));
+}
