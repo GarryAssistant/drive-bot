@@ -140,3 +140,82 @@ export async function sendMilestoneNotification(userId: string, milestone: numbe
   const text = messages[milestone];
   if (text) await sendTelegramMessage(user.telegramId, text);
 }
+
+// ─── Warm-up messages for users without active goal ──────────────────────────
+const WARMUP_MESSAGES = [
+  { day: 1, text: `👋 Привет! Рад что ты здесь.\n\nBольшие цели начинаются с первого шага. У тебя есть идея чего хочешь достичь — машина, квартира, бизнес?\n\n🎯 Поставь цель: /goal` },
+  { day: 2, text: `💡 Знаешь, в чём секрет людей которые достигают большего?\n\nОни не мотивированы каждый день. Они просто <b>записывают</b> что сделали. Маленький трекинг → большие результаты.\n\n🎯 Начни сегодня: /goal` },
+  { day: 3, text: `🚗 Представь: через год ты садишься в машину мечты. Или заходишь в свою квартиру. Или запускаешь бизнес.\n\nЭто начинается сейчас, с одного решения.\n\n🎯 Поставь цель: /goal` },
+  { day: 5, text: `📊 Люди с конкретной целью и системой трекинга достигают её в 3x быстрее.\n\nDrive — это твой ежедневный трекер прогресса с AI-анализом.\n\n🎯 Готов начать? /goal` },
+  { day: 7, text: `⏰ Неделя прошла. Ты ещё не поставил цель.\n\nЭто нормально — многие откладывают. Но каждый день промедления это минус один день к мечте.\n\n🎯 2 минуты чтобы начать: /goal` },
+];
+
+/**
+ * Ежедневный прогрев новых юзеров без цели
+ */
+export function scheduleWarmup(): void {
+  cron.schedule('30 9 * * *', async () => { // 12:30 MSK
+    const nowUTC = new Date();
+    try {
+      const usersWithoutGoal = await prisma.user.findMany({
+        where: {
+          telegramId: { not: null },
+          goals: { none: {} },
+        },
+        select: { id: true, telegramId: true, firstName: true, createdAt: true },
+      });
+
+      for (const user of usersWithoutGoal) {
+        if (!user.telegramId) continue;
+        const daysSinceJoin = Math.floor((nowUTC.getTime() - user.createdAt.getTime()) / 86400000);
+        const warmup = WARMUP_MESSAGES.find(m => m.day === daysSinceJoin + 1);
+        if (!warmup) continue;
+
+        const name = user.firstName || 'друг';
+        await sendTelegramMessage(user.telegramId, `${name}, ${warmup.text}`);
+      }
+    } catch (err) {
+      console.error('[Cron] Warmup error:', err);
+    }
+  });
+  console.log('[Notification] Warmup sequence scheduled');
+}
+
+/**
+ * Streak protection — предупреждение если юзер не записал за 22:00 МСК
+ */
+export function scheduleStreakProtection(): void {
+  cron.schedule('0 19 * * *', async () => { // 22:00 MSK = 19:00 UTC
+    const todayUTC = new Date();
+    const todayDate = new Date(Date.UTC(todayUTC.getUTCFullYear(), todayUTC.getUTCMonth(), todayUTC.getUTCDate()));
+
+    try {
+      const usersWithStreak = await prisma.userStats.findMany({
+        where: { currentStreak: { gte: 2 } },
+        include: { user: { select: { telegramId: true, firstName: true } } },
+      });
+
+      for (const stats of usersWithStreak) {
+        if (!stats.user?.telegramId) continue;
+        // Check if already recorded today
+        const goal = await prisma.goal.findFirst({ where: { userId: stats.userId, isActive: true } });
+        if (!goal) continue;
+
+        const entry = await prisma.entry.findUnique({
+          where: { userId_goalId_date: { userId: stats.userId, goalId: goal.id, date: todayDate } },
+        });
+        if (entry) continue;
+
+        const name = stats.user.firstName || 'друг';
+        const streak = stats.currentStreak;
+        await sendTelegramMessage(
+          stats.user.telegramId,
+          `⚠️ ${name}, стрик ${streak} дней под угрозой!\n\nЗапиши день за 2 минуты и сохрани серию 🔥\n/entry`
+        );
+      }
+    } catch (err) {
+      console.error('[Cron] Streak protection error:', err);
+    }
+  });
+  console.log('[Notification] Streak protection scheduled (19:00 UTC / 22:00 MSK)');
+}

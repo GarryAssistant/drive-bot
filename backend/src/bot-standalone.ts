@@ -3,7 +3,7 @@ import * as Sentry from '@sentry/node';
 import http from 'http';
 import { startBot } from './services/bot.service';
 import { prisma } from './services/prisma.service';
-import { scheduleDailyReminder, scheduleWeeklyReport } from './services/notification.service';
+import { scheduleDailyReminder, scheduleWeeklyReport, scheduleWarmup, scheduleStreakProtection } from './services/notification.service';
 
 
 // ─── Sentry (optional — set SENTRY_DSN env var) ───────────────────────────
@@ -31,6 +31,8 @@ async function main() {
 
   scheduleDailyReminder();
   scheduleWeeklyReport();
+  scheduleWarmup();
+  scheduleStreakProtection();
 
   if (WEBHOOK_URL) {
     // ─── Webhook mode (production) ──────────────────────────────────────────

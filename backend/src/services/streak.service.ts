@@ -11,7 +11,7 @@ export async function updateStreak(
   goalId: string,
   entryDate: Date,
   totalScore: number
-): Promise<{ currentStreak: number; longestStreak: number; isNew: boolean }> {
+): Promise<{ currentStreak: number; longestStreak: number; isNew: boolean; previousStreak: number }> {
   const today = toDateOnly(entryDate);
 
   const stats = await prisma.userStats.findUnique({ where: { userId } });
@@ -30,7 +30,7 @@ export async function updateStreak(
         progressPercent: calculateProgress(totalScore, 1),
       },
     });
-    return { currentStreak: 1, longestStreak: 1, isNew: true };
+    return { currentStreak: 1, longestStreak: 1, isNew: true, previousStreak: 0 };
   }
 
   const lastDate = stats.lastEntryDate ? toDateOnly(stats.lastEntryDate) : null;
@@ -52,6 +52,7 @@ export async function updateStreak(
       currentStreak: stats.currentStreak,
       longestStreak: stats.longestStreak,
       isNew: false,
+      previousStreak: stats.currentStreak,
     };
   }
 
@@ -73,7 +74,7 @@ export async function updateStreak(
     },
   });
 
-  return { currentStreak: newStreak, longestStreak: newLongest, isNew: true };
+  return { currentStreak: newStreak, longestStreak: newLongest, isNew: true , previousStreak: stats?.currentStreak ?? 0 };
 }
 
 /**

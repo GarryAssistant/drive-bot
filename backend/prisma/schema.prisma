@@ -23,6 +23,8 @@ model User {
   goals     Goal[]
   entries   Entry[]
   feedbacks Feedback[]
+  badges    Badge[]
+  userStats UserStats?
 
   @@map("users")
 }
@@ -104,6 +106,8 @@ model UserStats {
   progressPercent Float     @default(0) @map("progress_percent")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@map("user_stats")
 }
 
@@ -117,4 +121,17 @@ model Feedback {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("feedbacks")
+}
+
+model Badge {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  type      String   // streak_3, streak_7, streak_30, entries_10, first_entry, etc.
+  earnedAt  DateTime @default(now()) @map("earned_at")
+  notified  Boolean  @default(false)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type])
+  @@map("badges")
 }

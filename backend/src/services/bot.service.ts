@@ -2,6 +2,7 @@ import { Telegraf, Markup, Context } from 'telegraf';
 import { prisma } from './prisma.service';
 import { analyzeEntry, suggestSubcategories, generateWeeklyReport, SuggestedSubcategory } from './ai.service';
 import { updateStreak } from './streak.service';
+import { checkAndAwardBadges, formatBadgeMessage, BADGES } from './badge.service';
 import { checkRateLimit } from './rate-limiter.service';
 
 // Admin Telegram IDs (добавь своё)
@@ -123,12 +124,12 @@ function todayUTC(): Date {
 const MAIN_KEYBOARD = Markup.keyboard([
   ['✍️ Записать день', '📊 Прогресс'],
   ['📈 Статистика', '📅 Отчёт за неделю'],
-  ['🎯 Новая цель', '⚙️ Настройки'],
-  ['❓ Помощь'],
+  ['🏅 Бейджи', '🎯 Новая цель'],
+  ['⚙️ Настройки', '❓ Помощь'],
 ]).resize();
 
 const KEYBOARD_BUTTON_TEXTS = [
-  '🎯 Поставить цель', '🎯 Новая цель',
+  '🎯 Поставить цель', '🎯 Новая цель', '🏅 Бейджи',
   '✍️ Записать день', '📊 Прогресс',
   '📈 Статистика', '📅 Отчёт за неделю',
   '⚙️ Настройки', '❓ Помощь',
@@ -530,6 +531,15 @@ export async function startBot(): Promise<import('telegraf').Telegraf | null> {
   bot.hears('🎯 Поставить цель', async (ctx) => {
     setSession(ctx.from!.id, { state: 'awaiting_about' });
     return ctx.reply('Расскажи о себе — чем занимаешься, сколько тебе лет?', { ...Markup.removeKeyboard() });
+  });
+  bot.hears('🏅 Бейджи', async (ctx) => {
+    const user = await getOrCreateUser(ctx);
+    const earned = await prisma.badge.findMany({ where: { userId: user.id }, orderBy: { earnedAt: 'asc' } });
+    if (earned.length === 0) return ctx.reply('У тебя пока нет бейджей. Добавь первую запись! /entry', MAIN_KEYBOARD);
+    let text = '🏅 *Твои бейджи*\n\n';
+    for (const b of earned) { const def = BADGES[b.type]; if (def) text += `${def.emoji} *${def.title}* — ${def.description}\n`; }
+    text += `\n_${earned.length} из ${Object.keys(BADGES).length} получено_`;
+    return ctx.reply(text, { parse_mode: 'Markdown', ...MAIN_KEYBOARD });
   });
   bot.hears('🎯 Новая цель', handleGoal);
   bot.hears('✍️ Записать день', handleEntry);
@@ -1119,6 +1129,16 @@ export async function startBot(): Promise<import('telegraf').Telegraf | null> {
         });
         const streakResult = await updateStreak(user.id, goal.id, today, analysis.totalScore);
 
+        // Check badges
+        const statsAfter = await prisma.userStats.findUnique({ where: { userId: user.id } });
+        const newBadges = await checkAndAwardBadges(
+          user.id,
+          streakResult.currentStreak,
+          statsAfter?.totalEntries ?? 1,
+          analysis.totalScore,
+          streakResult.previousStreak ?? 0,
+        );
+
         const scoreEmoji = analysis.totalScore >= 70 ? '🟢' : analysis.totalScore >= 40 ? '🟡' : '🔴';
         let reply = `${scoreEmoji} *Оценка дня: ${analysis.totalScore}/100*\n\n💬 ${analysis.overallComment}\n\n*По категориям:*\n`;
         for (const s of analysis.subcategories) {
@@ -1134,6 +1154,7 @@ export async function startBot(): Promise<import('telegraf').Telegraf | null> {
           for (const s of analysis.suggestions) reply += `• ${s}\n`;
         }
         reply += `\n🔥 Стрик: *${streakWord(streakResult.currentStreak)}*`;
+        for (const b of newBadges) reply += formatBadgeMessage(b);
 
         // Предлагаем оставить отзыв каждые 5 записей
         const stats = await prisma.userStats.findUnique({ where: { userId: user.id } });
@@ -1183,6 +1204,137 @@ export async function startBot(): Promise<import('telegraf').Telegraf | null> {
     }
 
     await ctx.reply(`✅ Отправлено: ${sent}\n❌ Ошибок: ${failed}`);
+  });
+
+  bot.command('badges', async (ctx) => {
+    const user = await getOrCreateUser(ctx);
+    const earned = await prisma.badge.findMany({
+      where: { userId: user.id },
+      orderBy: { earnedAt: 'asc' },
+    });
+
+    if (earned.length === 0) {
+      return ctx.reply('У тебя пока нет бейджей. Добавь первую запись дня! /entry', MAIN_KEYBOARD);
+    }
+
+    let text = '🏅 *Твои бейджи*\n\n';
+    for (const b of earned) {
+      const def = BADGES[b.type];
+      if (def) text += `${def.emoji} *${def.title}* — ${def.description}\n`;
+    }
+    const total = Object.keys(BADGES).length;
+    text += `\n_${earned.length} из ${total} бейджей получено_`;
+    return ctx.reply(text, { parse_mode: 'Markdown', ...MAIN_KEYBOARD });
+  });
+
+  // ─── Voice messages ──────────────────────────────────────────────────────
+  bot.on('voice', async (ctx) => {
+    const userId = ctx.from.id;
+    const sess = getSession(userId);
+
+    // Only process voice when user is in entry state or idle
+    if (!['idle', 'awaiting_entry_text'].includes(sess.state)) {
+      return ctx.reply('Сейчас не могу принять голосовое. Завершите текущее действие.');
+    }
+
+    const user = await getOrCreateUser(ctx);
+    const goal = await getActiveGoal(user.id);
+    if (!goal) return ctx.reply('У тебя ещё нет цели. Создай её: /goal 🎯');
+
+    const existing = await prisma.entry.findUnique({
+      where: { userId_goalId_date: { userId: user.id, goalId: goal.id, date: todayUTC() } },
+    });
+    if (existing) {
+      return ctx.reply(`✅ Сегодня уже записано! Оценка: *${existing.totalScore}/100*`, { parse_mode: 'Markdown', ...MAIN_KEYBOARD });
+    }
+
+    const processingMsg = await ctx.reply('🎙 Расшифровываю голосовое...');
+
+    try {
+      const apiKey = process.env.GROQ_API_KEY;
+      if (!apiKey) throw new Error('GROQ_API_KEY not set');
+
+      // Get file from Telegram
+      const fileId = ctx.message.voice.file_id;
+      const fileInfo = await ctx.telegram.getFile(fileId);
+      const fileUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${fileInfo.file_path}`;
+
+      // Download voice file
+      const fileResp = await fetch(fileUrl);
+      if (!fileResp.ok) throw new Error('Failed to download voice file');
+      const audioBuffer = Buffer.from(await fileResp.arrayBuffer());
+
+      // Transcribe via Groq Whisper
+      const FormData = (await import('form-data')).default;
+      const form = new FormData();
+      form.append('file', audioBuffer, { filename: 'voice.ogg', contentType: 'audio/ogg' });
+      form.append('model', 'whisper-large-v3-turbo');
+      form.append('language', 'ru');
+
+      const whisperResp = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}`, ...form.getHeaders() },
+        body: form,
+      });
+
+      if (!whisperResp.ok) {
+        const err = await whisperResp.text();
+        throw new Error(`Whisper API error: ${err}`);
+      }
+
+      const whisperData = await whisperResp.json() as { text: string };
+      const transcription = whisperData.text?.trim();
+
+      if (!transcription || transcription.length < 5) {
+        return ctx.reply('Не смог разобрать голосовое. Попробуй написать текстом.');
+      }
+
+      // Edit processing message to show transcription
+      await ctx.telegram.editMessageText(
+        ctx.chat.id, processingMsg.message_id, undefined,
+        `🎙 *Расшифровано:*\n_${transcription}_\n\n🤖 Анализирую...`,
+        { parse_mode: 'Markdown' }
+      ).catch(() => {});
+
+      // Now analyze same as text entry
+      setSession(userId, { state: 'idle' });
+      const subcategoryNames = goal.subcategories.map((s) => s.name);
+      const analysis = await analyzeEntry(transcription, goal.title, subcategoryNames);
+
+      const today = todayUTC();
+      await prisma.entry.upsert({
+        where: { userId_goalId_date: { userId: user.id, goalId: goal.id, date: today } },
+        update: { rawText: transcription, totalScore: analysis.totalScore, aiComment: analysis.overallComment },
+        create: {
+          userId: user.id, goalId: goal.id, date: today,
+          rawText: transcription, totalScore: analysis.totalScore, aiComment: analysis.overallComment,
+          entryScores: {
+            create: analysis.subcategories.map((s) => {
+              const sub = goal.subcategories.find((sc) => sc.name.toLowerCase() === s.name.toLowerCase()) ?? goal.subcategories[0];
+              return { subcategoryId: sub.id, score: s.score, aiComment: s.comment, actions: s.actions };
+            }),
+          },
+        },
+      });
+
+      const streakResult = await updateStreak(user.id, goal.id, today, analysis.totalScore);
+      const statsAfter = await prisma.userStats.findUnique({ where: { userId: user.id } });
+      const newBadges = await checkAndAwardBadges(user.id, streakResult.currentStreak, statsAfter?.totalEntries ?? 1, analysis.totalScore, (streakResult as any).previousStreak ?? 0);
+
+      const scoreEmoji = analysis.totalScore >= 70 ? '🟢' : analysis.totalScore >= 40 ? '🟡' : '🔴';
+      let reply = `${scoreEmoji} *Оценка дня: ${analysis.totalScore}/100*\n\n💬 ${analysis.overallComment}\n\n*По категориям:*\n`;
+      for (const s of analysis.subcategories) {
+        const sub = goal.subcategories.find((sc) => sc.name.toLowerCase() === s.name.toLowerCase());
+        reply += `${sub?.emoji ?? '•'} ${s.name}: *${s.score}/10*\n`;
+      }
+      reply += `\n🔥 Стрик: *${streakWord(streakResult.currentStreak)}*`;
+      for (const b of newBadges) reply += formatBadgeMessage(b);
+
+      return ctx.reply(reply, { parse_mode: 'Markdown', ...MAIN_KEYBOARD });
+    } catch (err) {
+      console.error('[Voice] Error:', err);
+      return ctx.reply('❌ Не смог обработать голосовое. Попробуй написать текстом.', MAIN_KEYBOARD);
+    }
   });
 
   bot.catch((err, ctx) => {
