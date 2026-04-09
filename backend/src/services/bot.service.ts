@@ -262,10 +262,10 @@ async function handleGoal(ctx: Context) {
     {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🚗 Купить машину', 'goal_type_car'), Markup.button.callback('🏠 Купить квартиру', 'goal_type_apartment')],
+        [Markup.button.callback('🏎️ Купить машину', 'goal_type_car'), Markup.button.callback('🏠 Купить квартиру', 'goal_type_apartment')],
         [Markup.button.callback('💼 Запустить бизнес', 'goal_type_business'), Markup.button.callback('💍 Свадьба', 'goal_type_wedding')],
-        [Markup.button.callback('✈️ Путешествие мечты', 'goal_type_travel'), Markup.button.callback('💪 Фитнес / тело', 'goal_type_fitness')],
-        [Markup.button.callback('📱 Свой проект / стартап', 'goal_type_startup'), Markup.button.callback('💰 Накопить капитал', 'goal_type_capital')],
+        [Markup.button.callback('✈️ Путешествие', 'goal_type_travel'), Markup.button.callback('💪 Фитнес / тело', 'goal_type_fitness')],
+        [Markup.button.callback('🚀 Стартап / проект', 'goal_type_startup'), Markup.button.callback('💰 Накопить капитал', 'goal_type_capital')],
         [Markup.button.callback('🎯 Своя цель', 'goal_type_custom')],
       ]),
     }
@@ -618,13 +618,13 @@ export async function startBot(): Promise<import('telegraf').Telegraf | null> {
     // ── Car unknown ─────────────────────────────────────────────────────────
     // ── Goal type selection ────────────────────────────────────────────────
     const goalTypeMap: Record<string, { emoji: string; label: string; question: string }> = {
-      'goal_type_car':       { emoji: '🚗', label: 'Купить машину',        question: 'Какую машину хочешь? Напиши марку/модель или примерный бюджет.' },
+      'goal_type_car':       { emoji: '🏎️', label: 'Купить машину',        question: 'Какую машину хочешь? Напиши марку/модель или примерный бюджет.' },
       'goal_type_apartment': { emoji: '🏠', label: 'Купить квартиру',       question: 'В каком городе и примерный бюджет? (например: Москва, 8 млн)' },
       'goal_type_business':  { emoji: '💼', label: 'Запустить бизнес',      question: 'Что за бизнес хочешь открыть? Опиши в паре слов.' },
       'goal_type_wedding':   { emoji: '💍', label: 'Свадьба',               question: 'Примерный бюджет на свадьбу или желаемая дата?' },
       'goal_type_travel':    { emoji: '✈️', label: 'Путешествие мечты',     question: 'Куда хочешь поехать и примерный бюджет поездки?' },
       'goal_type_fitness':   { emoji: '💪', label: 'Фитнес / тело',         question: 'Какая конкретная цель? Например: сбросить 15 кг, пробежать марафон, накачаться.' },
-      'goal_type_startup':   { emoji: '📱', label: 'Свой проект / стартап', question: 'Что за проект? Опиши идею в 1-2 предложениях.' },
+      'goal_type_startup':   { emoji: '🚀', label: 'Стартап / проект', question: 'Что за проект? Опиши идею в 1-2 предложениях.' },
       'goal_type_capital':   { emoji: '💰', label: 'Накопить капитал',      question: 'Сколько хочешь накопить и к какому сроку? (например: 3 млн за 2 года)' },
       'goal_type_custom':    { emoji: '🎯', label: 'Своя цель',             question: 'Опиши свою цель — что именно хочешь достичь?' },
     };
@@ -646,10 +646,14 @@ export async function startBot(): Promise<import('telegraf').Telegraf | null> {
     // ── Life areas ──────────────────────────────────────────────────────────
     const areaMap: Record<string, string> = {
       'area_career': '💼 Карьера',
+      'area_business': '🏗 Бизнес',
       'area_finance': '💰 Финансы',
       'area_health': '💪 Здоровье',
-      'area_growth': '📚 Саморазвитие',
+      'area_mindset': '🧠 Мышление',
+      'area_skills': '📚 Навыки',
       'area_relations': '❤️ Отношения',
+      'area_family': '👨‍👩‍👧 Семья',
+      'area_network': '🤝 Нетворк',
       'area_travel': '🌍 Путешествия',
     };
     if (data in areaMap) {
@@ -665,9 +669,11 @@ export async function startBot(): Promise<import('telegraf').Telegraf | null> {
           {
             parse_mode: 'Markdown',
             ...Markup.inlineKeyboard([
-              [Markup.button.callback('💼 Карьера / бизнес', 'area_career'), Markup.button.callback('💰 Финансы', 'area_finance')],
-              [Markup.button.callback('💪 Здоровье', 'area_health'), Markup.button.callback('📚 Саморазвитие', 'area_growth')],
-              [Markup.button.callback('❤️ Отношения', 'area_relations'), Markup.button.callback('🌍 Путешествия', 'area_travel')],
+              [Markup.button.callback('💼 Карьера', 'area_career'), Markup.button.callback('🏗 Бизнес', 'area_business')],
+              [Markup.button.callback('💰 Финансы', 'area_finance'), Markup.button.callback('💪 Здоровье', 'area_health')],
+              [Markup.button.callback('🧠 Мышление', 'area_mindset'), Markup.button.callback('📚 Навыки', 'area_skills')],
+              [Markup.button.callback('❤️ Отношения', 'area_relations'), Markup.button.callback('👨‍👩‍👧 Семья', 'area_family')],
+              [Markup.button.callback('🤝 Нетворк', 'area_network'), Markup.button.callback('🌍 Путешествия', 'area_travel')],
               [Markup.button.callback('✅ Готово', 'areas_done')],
             ]),
           }
@@ -1059,10 +1065,10 @@ export async function startBot(): Promise<import('telegraf').Telegraf | null> {
         {
           parse_mode: 'Markdown',
           ...Markup.inlineKeyboard([
-            [Markup.button.callback('🚗 Купить машину', 'goal_type_car'), Markup.button.callback('🏠 Купить квартиру', 'goal_type_apartment')],
+            [Markup.button.callback('🏎️ Купить машину', 'goal_type_car'), Markup.button.callback('🏠 Купить квартиру', 'goal_type_apartment')],
             [Markup.button.callback('💼 Запустить бизнес', 'goal_type_business'), Markup.button.callback('💍 Свадьба', 'goal_type_wedding')],
-            [Markup.button.callback('✈️ Путешествие мечты', 'goal_type_travel'), Markup.button.callback('💪 Фитнес / тело', 'goal_type_fitness')],
-            [Markup.button.callback('📱 Свой проект / стартап', 'goal_type_startup'), Markup.button.callback('💰 Накопить капитал', 'goal_type_capital')],
+            [Markup.button.callback('✈️ Путешествие', 'goal_type_travel'), Markup.button.callback('💪 Фитнес / тело', 'goal_type_fitness')],
+            [Markup.button.callback('🚀 Стартап / проект', 'goal_type_startup'), Markup.button.callback('💰 Накопить капитал', 'goal_type_capital')],
             [Markup.button.callback('🎯 Своя цель', 'goal_type_custom')],
           ]),
         }
@@ -1087,9 +1093,11 @@ export async function startBot(): Promise<import('telegraf').Telegraf | null> {
         {
           parse_mode: 'Markdown',
           ...Markup.inlineKeyboard([
-            [Markup.button.callback('💼 Карьера / бизнес', 'area_career'), Markup.button.callback('💰 Финансы', 'area_finance')],
-            [Markup.button.callback('💪 Здоровье', 'area_health'), Markup.button.callback('📚 Саморазвитие', 'area_growth')],
-            [Markup.button.callback('❤️ Отношения', 'area_relations'), Markup.button.callback('🌍 Путешествия', 'area_travel')],
+            [Markup.button.callback('💼 Карьера', 'area_career'), Markup.button.callback('🏗 Бизнес', 'area_business')],
+            [Markup.button.callback('💰 Финансы', 'area_finance'), Markup.button.callback('💪 Здоровье', 'area_health')],
+            [Markup.button.callback('🧠 Мышление', 'area_mindset'), Markup.button.callback('📚 Навыки', 'area_skills')],
+            [Markup.button.callback('❤️ Отношения', 'area_relations'), Markup.button.callback('👨‍👩‍👧 Семья', 'area_family')],
+            [Markup.button.callback('🤝 Нетворк', 'area_network'), Markup.button.callback('🌍 Путешествия', 'area_travel')],
             [Markup.button.callback('✅ Готово', 'areas_done')],
           ]),
         },
