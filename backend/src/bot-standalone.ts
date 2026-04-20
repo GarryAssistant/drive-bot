@@ -19,7 +19,7 @@ const PORT = parseInt(process.env.PORT || '3000', 10);
 const WEBHOOK_URL = process.env.WEBHOOK_URL; // e.g. https://your-app.up.railway.app
 
 console.log('🤖 DriveGoal Bot starting...');
-
+console.log(`[Config] DATABASE_URL: ${process.env.DATABASE_URL ? "***" + process.env.DATABASE_URL.slice(-30) : "NOT SET"}`);
 async function main() {
   const bot = await startBot();
 
@@ -109,3 +109,4 @@ process.once('SIGTERM', async () => {
   await prisma.$disconnect();
   process.exit(0);
 });
+console.log(`[Config] DATABASE_URL: ${process.env.DATABASE_URL ? "***" + process.env.DATABASE_URL.slice(-30) : "NOT SET"}`);
