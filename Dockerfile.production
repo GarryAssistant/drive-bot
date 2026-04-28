@@ -1,0 +1,25 @@
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY backend/package*.json ./
+RUN npm ci
+COPY backend/ ./
+RUN npm run build
+
+FROM node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/prisma ./prisma
+
+# Устанавливаем только production зависимости
+RUN npm prune --production
+
+# Создаём non-root пользователя
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nodejs
+USER nodejs
+
+EXPOSE 3000
+CMD ["node", "dist/index.js"]

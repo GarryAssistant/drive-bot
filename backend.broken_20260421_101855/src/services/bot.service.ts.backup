@@ -1,14 +1,13 @@
 import { Telegraf, Markup, Context } from 'telegraf';
 import { prisma } from './prisma.service';
 import { analyzeEntry, suggestSubcategories, generateWeeklyReport, SuggestedSubcategory } from './ai.service';
-import { updateStreak, checkMissedDaysAndNotify } from './streak.service';
+import { updateStreak } from './streak.service';
 import { checkAndAwardBadges, formatBadgeMessage, BADGES } from './badge.service';
 import { checkRateLimit } from './rate-limiter.service';
 import { handleTestCommand, handlePersonaCallback } from './test-panel.service';
 import { handleDashboard, buildDashPage } from './analytics-dashboard.service';
 import { handleExport } from './export.service';
 import { handleWeeklyPlanCommand } from './weekly-plan.service';
-import { sessionBackupService } from './session-backup.service';
 
 // Admin Telegram IDs (добавь своё)
 const ADMIN_IDS: string[] = (process.env.ADMIN_TELEGRAM_IDS || '').split(',').filter(Boolean);
@@ -51,9 +50,20 @@ let sessionsLoaded = false;
 async function ensureSessionsLoaded() {
   if (sessionsLoaded) return;
   sessionsLoaded = true;
-  console.log('[Bot] Session loading disabled (dev mode)');
-  // Временно отключаем загрузку из БД для разработки
-  return;
+  try {
+    const users = await prisma.user.findMany({
+      select: { telegramId: true, sessionData: true },
+    });
+    for (const u of users) {
+      if (u.telegramId && u.sessionData) {
+        const tgId = parseInt(u.telegramId, 10);
+        if (!isNaN(tgId)) sessions.set(tgId, u.sessionData as unknown as SessionData);
+      }
+    }
+    console.log(`[Bot] Loaded ${users.length} sessions from DB`);
+  } catch (e) {
+    console.error('[Bot] Failed to load sessions from DB:', e);
+  }
 }
 
 function getSession(userId: number): SessionData {
@@ -1367,24 +1377,4 @@ export async function startBot(): Promise<import('telegraf').Telegraf | null> {
   });
   console.log('[Bot] @DriveGoal_bot ready ✅');
   return bot;
-
-// Периодический бэкап сессий в Redis (каждые 5 минут)
-setInterval(() => {
-  const sessionCount = sessions.size;
-  if (sessionCount > 0) {
-    sessionBackupService.backupAllSessions(sessions).then(backedUp => {
-      console.log('Backed up ' + backedUp + ' sessions to Redis');
-    }).catch(err => {
-      console.error('Failed to backup sessions:', err);
-    });
-  }
-}, 5 * 60 * 1000); // 5 минут
-
-// Восстановление сессий при запуске
-sessionBackupService.restoreAllSessions(sessions).then(restored => {
-  console.log('Restored ' + restored + ' sessions from Redis on startup');
-}).catch(err => {
-  console.error('Failed to restore sessions on startup:', err);
-});
-
 }

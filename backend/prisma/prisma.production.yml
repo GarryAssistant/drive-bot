@@ -1,0 +1,27 @@
+# Production Prisma configuration
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  connection_limit = 10
+  pool_timeout = 30
+}
+
+generator client {
+  provider = "prisma-client-js"
+  binaryTargets = ["debian-openssl-3.0.x"]
+}
+
+# Ускоренные индексы для продакшена
+model User {
+  @@index([telegramId])
+  @@index([createdAt])
+}
+
+model Entry {
+  @@index([userId, createdAt])
+  @@index([createdAt])
+}
+
+model UserStats {
+  @@index([userId])
+}

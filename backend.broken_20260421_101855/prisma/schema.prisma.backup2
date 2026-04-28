@@ -15,7 +15,6 @@ model User {
   firstName      String?   @map("first_name")
   notifyHour     Int       @default(21) @map("notify_hour")
   notifyEnabled  Boolean   @default(true) @map("notify_enabled")
-  xp             Int       @default(0)
   lastNotifiedAt DateTime? @db.Date @map("last_notified_at") 
   sessionData    Json?     @map("session_data")
   abVariant      String    @default("A") @map("ab_variant")
@@ -107,9 +106,6 @@ model UserStats {
   totalEntries    Int       @default(0) @map("total_entries")
   lastEntryDate   DateTime? @db.Date @map("last_entry_date") 
   progressPercent Float     @default(0) @map("progress_percent")
-  missedDays      Int       @default(0) @map("missed_days")      // Дней пропуска подряд
-  lastMissedDate  DateTime? @db.Date @map("last_missed_date")   // Дата последнего пропуска
-  gracePeriodUsed Boolean   @default(false) @map("grace_period_used") // Использовал ли grace period
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -155,74 +151,4 @@ model WeeklyPlan {
 
   @@unique([userId, weekStart])
   @@map("weekly_plans")
-}
-
-// === Fast Tracker Models: Projects, Tasks, TimeLog, AILearning ===
-
-model Project {
-  id          String   @id @default(cuid())
-  userId      String   @map("user_id")
-  title       String
-  description String?
-  deadline    DateTime?
-  status      String   @default("active") // active, completed, archived
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-
-  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tasks Task[]
-
-  @@map("projects")
-}
-
-model Task {
-  id           String    @id @default(cuid())
-  projectId    String    @map("project_id")
-  title        String
-  description  String?
-  priority     String    @default("medium") // low, medium, high, urgent
-  status       String    @default("todo")   // todo, in_progress, blocked, done
-  estimatedTime Int?     @map("estimated_time") // в минутах
-  actualTime   Int?      @map("actual_time")     // в минутах
-  deadline     DateTime?
-  reminderAt   DateTime? @map("reminder_at")     // когда бот должен уточнить статус
-  sortOrder    Int       @default(0) @map("sort_order")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
-
-  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  timeLogs TimeLog[]
-
-  @@index([projectId, status])
-  @@map("tasks")
-}
-
-model TimeLog {
-  id        String    @id @default(cuid())
-  taskId    String    @map("task_id")
-  startTime DateTime  @map("start_time")
-  endTime   DateTime? @map("end_time")
-  duration  Int?      // в минутах
-  notes     String?
-  createdAt DateTime  @default(now()) @map("created_at")
-
-  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
-
-  @@index([taskId])
-  @@map("time_logs")
-}
-
-model AILearning {
-  id        String   @id @default(cuid())
-  userId    String   @map("user_id")
-  input     String   // что пользователь ввёл
-  output    String   // как бот декомпозировал
-  context   Json     // контекст (цель, дедлайн, приоритет и т.д.)
-  rating    Int?     // оценка пользователя (1-5)
-  createdAt DateTime @default(now()) @map("created_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@map("ai_learning")
 }

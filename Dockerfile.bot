@@ -1,5 +1,8 @@
 FROM node:20-slim AS builder
 
+ARG BUILD_TIMESTAMP
+RUN echo "Build timestamp: ${BUILD_TIMESTAMP}"
+
 WORKDIR /app
 COPY backend/package*.json ./
 RUN npm ci --legacy-peer-deps

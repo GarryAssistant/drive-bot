@@ -1,5 +1,3 @@
-import { checkDatabaseHealth } from './services/database.service';
-import { redisService } from './services/redis.service';
 import 'dotenv/config';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
@@ -53,25 +51,11 @@ async function bootstrap() {
   await app.register(progressRoutes, { prefix: '/api/v1' });
 
   // ─── Health check ─────────────────────────────────────────────────────────
-  app.get('/health', async () => {
-    const dbHealth = await checkDatabaseHealth();
-    const redisHealth = await redisService.healthCheck();
-    const uptime = process.uptime();
-    const memory = process.memoryUsage();
-    
-    return {
-      status: dbHealth.status === 'healthy' && redisHealth ? 'ok' : 'degraded',
-      uptime: Math.floor(uptime),
-      memory: {
-        rss: Math.round(memory.rss / 1024 / 1024),
-        heapTotal: Math.round(memory.heapTotal / 1024 / 1024),
-        heapUsed: Math.round(memory.heapUsed / 1024 / 1024),
-      },
-      database: dbHealth,
-      redis: redisHealth,
-      timestamp: new Date().toISOString(),
-    };
-  });
+  app.get('/health', async () => ({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    version: '0.1.0',
+  }));
 
   // ─── Global error handler ─────────────────────────────────────────────────
   app.setErrorHandler((error, request, reply) => {

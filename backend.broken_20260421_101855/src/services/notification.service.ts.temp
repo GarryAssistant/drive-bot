@@ -23,6 +23,75 @@ async function sendTelegramMessage(telegramId: string, text: string): Promise<vo
  * Вечернее напоминание — каждый час проверяем у каких пользователей
  * сейчас их час уведомления (по МСК, UTC+3).
  */
+export function scheduleDailyReminder(): void {
+  // Запускаем каждый час в начале
+  cron.schedule('0 * * * *', async () => {
+    const nowUTC = new Date();
+    const mskHour = (nowUTC.getUTCHours() + 3) % 24;
+    const todayUTC = new Date(Date.UTC(nowUTC.getUTCFullYear(), nowUTC.getUTCMonth(), nowUTC.getUTCDate()));
+
+    try {
+      const users = await prisma.user.findMany({
+        where: {
+          telegramId: { not: null },
+          notifyEnabled: true,
+          notifyHour: mskHour,
+          goals: { some: { isActive: true } },
+        },
+      });
+
+      let sent = 0;
+      for (const user of users) {
+        if (!user.telegramId) continue;
+
+        // Не отправляли сегодня
+        if (user.lastNotifiedAt) {
+          const lastDate = new Date(user.lastNotifiedAt);
+          if (lastDate >= todayUTC) continue;
+        }
+
+        const goal = await prisma.goal.findFirst({ where: { userId: user.id, isActive: true } });
+        if (!goal) continue;
+
+        // Нет записи сегодня?
+        const entry = await prisma.entry.findUnique({
+          where: { userId_goalId_date: { userId: user.id, goalId: goal.id, date: todayUTC } },
+        });
+        if (entry) continue;
+
+        const stats = await prisma.userStats.findUnique({ where: { userId: user.id } });
+        const streak = stats?.currentStreak ?? 0;
+        const streakText = streak > 0 ? ` 🔥 Стрик: ${streak} дней` : '';
+        const name = user.firstName || user.username || 'друг';
+
+        await sendTelegramMessage(
+          user.telegramId,
+          `Привет, ${name}! Как прошёл твой день?${streakText}\n\n` +
+          `📌 Цель: <b>${goal.title}</b>\n\n` +
+          `Напиши, что сделал сегодня — это займёт 1 минуту 💪\n/entry`
+        );
+
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { lastNotifiedAt: todayUTC },
+        });
+        sent++;
+      }
+
+      if (sent > 0) {
+        console.log(`[Cron] Daily reminder sent to ${sent} users (MSK hour: ${mskHour})`);
+      }
+    } catch (err) {
+      console.error('[Cron] Daily reminder error:', err);
+    }
+  });
+
+  console.log('[Notification] Daily reminder scheduled (hourly, sends at user\'s notifyHour MSK)');
+}
+
+/**
+ * Еженедельный отчёт — воскресенье в 10:00 МСК (07:00 UTC)
+ */
 export function scheduleWeeklyReport(): void {
   cron.schedule('0 7 * * 0', async () => {
     console.log('[Cron] Running weekly report...');
@@ -122,6 +191,111 @@ export function scheduleWarmup(): void {
  * Streak protection — предупреждение если юзер не записал за 22:00 МСК
  */
 export function scheduleStreakProtection(): void {
+
+/**
+ * Разнообразные шаблоны напоминаний
+ */
+const reminderTemplates = [
+  // Тип 1: Мотивационный
+  (name: string, goalTitle: string, streakText: string) => 
+    `Привет, ${name}! Сегодня сделал это полчаса, а приносит много импакта!${streakText}\n\n` +
+    `📌 Цель: <b>${goalTitle}</b>\n\n` +
+    `Напиши, что сделал сегодня — это займёт 1 минуту 💪\n/entry`,
+
+  // Тип 2: Вопросный
+  (name: string, goalTitle: string, streakText: string) => 
+    `${name}, что было самым ценным сегодня в работе над целью?${streakText}\n\n` +
+    `📌 Цель: <b>${goalTitle}</b>\n\n` +
+    `Поделись одним действием, которое приблизило тебя к цели 👇\n/entry`,
+
+  // Тип 3: Статистический
+  (name: string, goalTitle: string, streakText: string, stats: any) => 
+    `${name}, твой стрик ${stats?.currentStreak || 0} дней! Продолжим?${streakText}\n\n` +
+    `📌 Цель: <b>${goalTitle}</b>\n\n` +
+    `Запиши сегодняшний прогресс и сохрани серию 🔥\n/entry`,
+
+  // Тип 4: Простой
+  (name: string, goalTitle: string, streakText: string) => 
+    `Привет, ${name}! Как день?${streakText}\n\n` +
+    `📌 Цель: <b>${goalTitle}</b>\n\n` +
+    `Напиши, что сделал сегодня — это займёт 1 минуту 💪\n/entry`,
+
+  // Тип 5: С поддержкой
+  (name: string, goalTitle: string, streakText: string) => 
+    `${name}, даже маленький шаг сегодня — это прогресс!${streakText}\n\n` +
+    `📌 Цель: <b>${goalTitle}</b>\n\n` +
+    `Что ты сделал для цели сегодня? Даже если немного 💫\n/entry`,
+
+  // Тип 6: С вызовом
+  (name: string, goalTitle: string, streakText: string) => 
+    `${name}, сможешь сделать сегодня лучше, чем вчера?${streakText}\n\n` +
+    `📌 Цель: <b>${goalTitle}</b>\n\n` +
+    `Брось себе вызов и запиши результат 🚀\n/entry`,
+
+  // Тип 7: С напоминанием о цели
+  (name: string, goalTitle: string, streakText: string) => 
+    `${name}, напомни, зачем ты начал работать над целью?${streakText}\n\n` +
+    `📌 Цель: <b>${goalTitle}</b>\n\n` +
+    `Сегодняшний шаг важен. Запиши его ✨\n/entry`,
+
+  // Тип 8: С фокусом на процессе
+  (name: string, goalTitle: string, streakText: string) => 
+    `${name}, не результат важен, а процесс!${streakText}\n\n` +
+    `📌 Цель: <b>${goalTitle}</b>\n\n` +
+    `Что ты делал сегодня для движения к цели? 📝\n/entry`,
+
+  // Тип 9: С юмором
+  (name: string, goalTitle: string, streakText: string) => 
+    `${name}, бот напоминает: пора записать прогресс!${streakText}\n\n` +
+    `📌 Цель: <b>${goalTitle}</b>\n\n` +
+    `Не заставляй меня грустить 😉 Запиши сегодняшнее действие!\n/entry`,
+
+  // Тип 10: С научным подходом
+  (name: string, goalTitle: string, streakText: string) => 
+    `${name}, исследования показывают: ежедневное отслежижение увеличивает шансы на успех на 42%!${streakText}\n\n` +
+    `📌 Цель: <b>${goalTitle}</b>\n\n` +
+    `Внеси сегодняшние данные в свой "эксперимент" 🔬\n/entry`,
+];
+
+/**
+ * Сообщения для grace period (пропущенные дни)
+ */
+const gracePeriodMessages = {
+  1: (name: string, goalTitle: string) => 
+    `⚠️ ${name}, ты пропустил один день работы над целью <b>${goalTitle}</b>.\n\n` +
+    `Не волнуйся — у тебя есть grace period! Стрик сохранится, если запишешь прогресс в течение 2 дней.\n\n` +
+    `Вернись в игру: /entry`,
+
+  2: (name: string, goalTitle: string) => 
+    `🚨 ${name}, это второй пропущенный день подряд для цели <b>${goalTitle}</b>.\n\n` +
+    `Остался 1 день grace period. Если пропустишь завтра — стрик сбросится.\n\n` +
+    `Не дай стрику уйти! Запиши сегодня: /entry`,
+
+  3: (name: string, goalTitle: string, previousStreak: number) => 
+    `💥 ${name}, стрик ${previousStreak} дней сброшен для цели <b>${goalTitle}</b>.\n\n` +
+    `Ты пропустил 3 дня подряд. Но это не конец — это новый старт!\n\n` +
+    `Начни новый стрик с бонусом +10 XP за первую запись! 🎁\n/entry`,
+};
+
+/**
+ * Сообщения "второго шанса"
+ */
+const secondChanceMessages = [
+  (name: string, goalTitle: string) => 
+    `🔄 ${name}, хочешь начать новый стрик для цели <b>${goalTitle}</b> с чистого листа?\n\n` +
+    `Получи +10 XP за первую запись после возвращения!\n\n` +
+    `Вернись к цели: /entry`,
+
+  (name: string, goalTitle: string) => 
+    `🌟 ${name}, каждый может оступиться. Важно — подняться и продолжить!\n\n` +
+    `Для цели <b>${goalTitle}</b> начинается новый отсчёт. +15 XP за первую запись!\n\n` +
+    `Начать заново: /entry`,
+
+  (name: string, goalTitle: string) => 
+    `💪 ${name}, resilience — это суперсила! После падения ты становишься сильнее.\n\n` +
+    `Цель <b>${goalTitle}</b> ждёт тебя. +12 XP за возвращение в строй!\n\n` +
+    `Продолжить путь: /entry`,
+];
   cron.schedule('0 19 * * *', async () => { // 22:00 MSK = 19:00 UTC
     const todayUTC = new Date();
     const todayDate = new Date(Date.UTC(todayUTC.getUTCFullYear(), todayUTC.getUTCMonth(), todayUTC.getUTCDate()));
@@ -274,118 +448,3 @@ function getDayQuestion(goalTitle: string, streak: number): string {
   return questions[Math.floor(Math.random() * questions.length)];
 }
 
-
-/**
- * Разнообразные шаблоны напоминаний
- */
-const reminderTemplates = [
-  // Тип 1: Мотивационный
-  (name: string, goalTitle: string, streakText: string) => 
-    `Привет, ${name}! Сегодня сделал это полчаса, а приносит много импакта!${streakText}\n\n` +
-    `📌 Цель: <b>${goalTitle}</b>\n\n` +
-    `Напиши, что сделал сегодня — это займёт 1 минуту 💪\\n/entry`,
-
-  // Тип 2: Вопросный
-  (name: string, goalTitle: string, streakText: string) => 
-    `${name}, что было самым ценным сегодня в работе над цели?${streakText}\n\n` +
-    `📌 Цель: <b>${goalTitle}</b>\n\n` +
-    `Поделись одним действием, которое приблизило тебя к цели 👇\n/entry`,
-
-  // Тип 3: Статистический
-  (name: string, goalTitle: string, streakText: string, stats: any) => 
-    `${name}, твой стрик ${stats?.currentStreak || 0} дней! Продолжим?${streakText}\n\n` +
-    `📌 Цель: <b>${goalTitle}</b>\n\n` +
-    `Запиши сегодняшний прогресс и сохрани серию 🔥\n/entry`,
-
-  // Тип 4: Простой
-  (name: string, goalTitle: string, streakText: string) => 
-    `Привет, ${name}! Как день?${streakText}\n\n` +
-    `📌 Цель: <b>${goalTitle}</b>\n\n` +
-    `Напиши, что сделал сегодня — это займёт 1 минуту 💪\\n/entry`,
-
-  // Тип 5: С поддержкой
-  (name: string, goalTitle: string, streakText: string) => 
-    `${name}, даже маленький шаг сегодня — это прогресс!${streakText}\n\n` +
-    `📌 Цель: <b>${goalTitle}</b>\n\n` +
-    `Что ты сделал для цели сегодня? Даже если немного 💫\n/entry`,
-
-  // Тип 6: С вызовом
-  (name: string, goalTitle: string, streakText: string) => 
-    `${name}, сможешь сделать сегодня лучше, чем вчера?${streakText}\n\n` +
-    `📌 Цель: <b>${goalTitle}</b>\n\n` +
-    `Брось себе вызов и запиши результат 🚀\n/entry`,
-
-  // Тип 7: С напоминанием о цели
-  (name: string, goalTitle: string, streakText: string) => 
-    `${name}, напомни, зачем ты начал работать над целью?${streakText}\n\n` +
-    `📌 Цель: <b>${goalTitle}</b>\n\n` +
-    `Сегодняшний шаг важен. Запиши его ✨\n/entry`,
-];
-
-/**
- * Обновляем функцию scheduleDailyReminder для использования разнообразных шаблонов
- */
-export function scheduleDailyReminder(): void {
-  // Запускаем каждый час в начале
-  cron.schedule('0 * * * *', async () => {
-    const nowUTC = new Date();
-    const mskHour = (nowUTC.getUTCHours() + 3) % 24;
-    const todayUTC = new Date(Date.UTC(nowUTC.getUTCFullYear(), nowUTC.getUTCMonth(), nowUTC.getUTCDate()));
-
-    try {
-      const users = await prisma.user.findMany({
-        where: {
-          telegramId: { not: null },
-          notifyEnabled: true,
-          notifyHour: mskHour,
-          goals: { some: { isActive: true } },
-        },
-      });
-
-      let sent = 0;
-      for (const user of users) {
-        if (!user.telegramId) continue;
-
-        // Не отправляли сегодня
-        if (user.lastNotifiedAt) {
-          const lastDate = new Date(user.lastNotifiedAt);
-          if (lastDate >= todayUTC) continue;
-        }
-
-        const goal = await prisma.goal.findFirst({ where: { userId: user.id, isActive: true } });
-        if (!goal) continue;
-
-        // Нет записи сегодня?
-        const entry = await prisma.entry.findUnique({
-          where: { userId_goalId_date: { userId: user.id, goalId: goal.id, date: todayUTC } },
-        });
-        if (entry) continue;
-
-        const stats = await prisma.userStats.findUnique({ where: { userId: user.id } });
-        const streak = stats?.currentStreak ?? 0;
-        const streakText = streak > 0 ? ` 🔥 Стрик: ${streak} дней` : '';
-        const name = user.firstName || user.username || 'друг';
-
-        // Выбираем случайный шаблон
-        const templateIndex = Math.floor(Math.random() * reminderTemplates.length);
-        const message = reminderTemplates[templateIndex](name, goal.title, streakText, stats);
-
-        await sendTelegramMessage(user.telegramId, message);
-
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { lastNotifiedAt: todayUTC },
-        });
-        sent++;
-      }
-
-      if (sent > 0) {
-        console.log(`[Cron] Daily reminder sent to ${sent} users (MSK hour: ${mskHour})`);
-      }
-    } catch (err) {
-      console.error('[Cron] Daily reminder error:', err);
-    }
-  });
-
-  console.log('[Notification] Daily reminder scheduled (hourly, sends at user\'s notifyHour MSK)');
-}

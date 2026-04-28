@@ -8,7 +8,6 @@ import { handleTestCommand, handlePersonaCallback } from './test-panel.service';
 import { handleDashboard, buildDashPage } from './analytics-dashboard.service';
 import { handleExport } from './export.service';
 import { handleWeeklyPlanCommand } from './weekly-plan.service';
-import { sessionBackupService } from './session-backup.service';
 
 // Admin Telegram IDs (добавь своё)
 const ADMIN_IDS: string[] = (process.env.ADMIN_TELEGRAM_IDS || '').split(',').filter(Boolean);
@@ -1367,24 +1366,4 @@ export async function startBot(): Promise<import('telegraf').Telegraf | null> {
   });
   console.log('[Bot] @DriveGoal_bot ready ✅');
   return bot;
-
-// Периодический бэкап сессий в Redis (каждые 5 минут)
-setInterval(() => {
-  const sessionCount = sessions.size;
-  if (sessionCount > 0) {
-    sessionBackupService.backupAllSessions(sessions).then(backedUp => {
-      console.log('Backed up ' + backedUp + ' sessions to Redis');
-    }).catch(err => {
-      console.error('Failed to backup sessions:', err);
-    });
-  }
-}, 5 * 60 * 1000); // 5 минут
-
-// Восстановление сессий при запуске
-sessionBackupService.restoreAllSessions(sessions).then(restored => {
-  console.log('Restored ' + restored + ' sessions from Redis on startup');
-}).catch(err => {
-  console.error('Failed to restore sessions on startup:', err);
-});
-
 }

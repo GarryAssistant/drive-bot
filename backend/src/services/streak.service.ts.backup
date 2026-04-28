@@ -1,0 +1,124 @@
+import { prisma } from './prisma.service';
+
+/**
+ * Обновляет стрик пользователя после новой записи.
+ * Логика: если последняя запись была вчера — стрик +1.
+ *         если сегодня — уже засчитано, ничего не меняем.
+ *         если позавчера или раньше — стрик сбрасывается до 1.
+ */
+export async function updateStreak(
+  userId: string,
+  goalId: string,
+  entryDate: Date,
+  totalScore: number
+): Promise<{ currentStreak: number; longestStreak: number; isNew: boolean; previousStreak: number }> {
+  const today = toDateOnly(entryDate);
+
+  const stats = await prisma.userStats.findUnique({ where: { userId } });
+
+  if (!stats) {
+    // Первая запись — создаём
+    const created = await prisma.userStats.create({
+      data: {
+        userId,
+        goalId,
+        currentStreak: 1,
+        longestStreak: 1,
+        totalScore,
+        totalEntries: 1,
+        lastEntryDate: today,
+        progressPercent: calculateProgress(totalScore, 1),
+      },
+    });
+    return { currentStreak: 1, longestStreak: 1, isNew: true, previousStreak: 0 };
+  }
+
+  const lastDate = stats.lastEntryDate ? toDateOnly(stats.lastEntryDate) : null;
+
+  // Уже есть запись сегодня — просто обновляем score
+  if (lastDate && isSameDay(lastDate, today)) {
+    await prisma.userStats.update({
+      where: { userId },
+      data: {
+        totalScore: { increment: totalScore },
+        totalEntries: { increment: 0 }, // не считаем повторный ввод
+        progressPercent: calculateProgress(
+          stats.totalScore + totalScore,
+          stats.totalEntries
+        ),
+      },
+    });
+    return {
+      currentStreak: stats.currentStreak,
+      longestStreak: stats.longestStreak,
+      isNew: false,
+      previousStreak: stats.currentStreak,
+    };
+  }
+
+  const isYesterday = lastDate ? isDayBefore(lastDate, today) : false;
+  const newStreak = isYesterday ? stats.currentStreak + 1 : 1;
+  const newLongest = Math.max(newStreak, stats.longestStreak);
+  const newTotal = stats.totalScore + totalScore;
+  const newEntries = stats.totalEntries + 1;
+
+  await prisma.userStats.update({
+    where: { userId },
+    data: {
+      currentStreak: newStreak,
+      longestStreak: newLongest,
+      totalScore: newTotal,
+      totalEntries: newEntries,
+      lastEntryDate: today,
+      progressPercent: calculateProgress(newTotal, newEntries),
+    },
+  });
+
+  return { currentStreak: newStreak, longestStreak: newLongest, isNew: true , previousStreak: stats?.currentStreak ?? 0 };
+}
+
+/**
+ * Упрощённый расчёт прогресса: накопленный средний балл / 100
+ * В будущем можно заменить на дедлайн-based расчёт
+ */
+/**
+ * Прогресс считается от консистентности, а не от среднего балла.
+ * 
+ * Логика:
+ * - Пол: 40% (никогда не падает ниже)
+ * - Каждая запись добавляет прогресс — просто показал(ся) и написал уже ценность
+ * - Высокие баллы (≥70) дают +1.5x бонус к шагу
+ * - Кап: 99% пока цель не закрыта явно
+ * 
+ * Пример: 10 записей со средним баллом 60 → ~72%
+ */
+function calculateProgress(totalScore: number, totalEntries: number): number {
+  if (totalEntries === 0) return 40;
+  
+  const avgScore = totalScore / totalEntries; // 0-100
+  
+  // Базовый шаг за каждую запись: ~1.5% (59 записей = ~88%)
+  const baseStep = 1.5;
+  // Бонус за качество: если средний балл высокий — шаг больше
+  const qualityMultiplier = avgScore >= 70 ? 1.4 : avgScore >= 50 ? 1.1 : 0.85;
+  
+  const progressAboveFloor = Math.min(totalEntries * baseStep * qualityMultiplier, 59);
+  const total = 40 + progressAboveFloor;
+  
+  return Math.min(parseFloat(total.toFixed(1)), 99);
+}
+
+// ─── Утилиты для дат ───────────────────────────────────────────────────────
+
+function toDateOnly(date: Date): Date {
+  return new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+}
+
+function isSameDay(a: Date, b: Date): boolean {
+  return a.getTime() === b.getTime();
+}
+
+function isDayBefore(prev: Date, next: Date): boolean {
+  const diff = next.getTime() - prev.getTime();
+  return diff === 86400000; // ровно 1 день в мс
+}

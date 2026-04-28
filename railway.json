@@ -1,0 +1,23 @@
+{
+  "build": {
+    "builder": "NIXPACKS",
+    "buildCommand": "cd backend && npm ci && npm run build"
+  },
+  "deploy": {
+    "startCommand": "cd backend && npm start",
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 30,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 3
+  },
+  "plugins": [
+    {
+      "name": "postgresql",
+      "type": "postgresql.railway"
+    },
+    {
+      "name": "redis",
+      "type": "redis.railway"
+    }
+  ]
+}
