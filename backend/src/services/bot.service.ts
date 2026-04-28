@@ -733,7 +733,7 @@ export async function startBot(): Promise<import('telegraf').Telegraf | null> {
     const hour = parseInt(hourStr || '');
     if (isNaN(hour) || hour < 0 || hour > 23) {
       return ctx.reply(
-        '🕐 Укажи час уведомления (0-23) по МСК.\n\nПример: `/notify 21` — буду напоминать в 21:00',
+        '🕐 Напиши час от 0 до 23 (по Москве).\n\nНапример: `/notify 21` — буду напоминать в 21:00 МСК',
         { parse_mode: 'Markdown' },
       );
     }
@@ -800,7 +800,7 @@ export async function startBot(): Promise<import('telegraf').Telegraf | null> {
     // ── Settings callbacks ──────────────────────────────────────────────────
     if (data === 'settings_notify_time') {
       return ctx.reply(
-        '🕐 В какое время напоминать? (час по МСК, 0-23)\n\nОтправь команду: `/notify <час>`\nНапример: `/notify 20`',
+        '🕐 В какое время напоминать по Москве?\n\nНапиши час от 0 до 23: `/notify 9` — в 9:00, `/notify 21` — в 21:00',
         { parse_mode: 'Markdown' },
       );
     }
