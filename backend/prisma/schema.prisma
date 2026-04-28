@@ -28,6 +28,8 @@ model User {
   badges    Badge[]
   userStats   UserStats?
   weeklyPlans WeeklyPlan[]
+  projects    Project[]
+  aiLearning  AILearning[]
 
   @@map("users")
 }
