@@ -281,8 +281,12 @@ async function handleEntry(ctx: Context) {
     where: { userId_goalId_date: { userId: user.id, goalId: goal.id, date: todayUTC() } },
   });
   if (existing) {
+    const scoreEmoji = existing.totalScore >= 70 ? '🟢' : existing.totalScore >= 40 ? '🟡' : '🔴';
     return ctx.reply(
-      `✅ Сегодня уже записано!\n\n📊 Оценка дня: *${existing.totalScore}/100*\n💬 ${existing.aiComment || ''}\n\nВозвращайся завтра 💪`,
+      `${scoreEmoji} *Оценка дня: ${existing.totalScore}/100*
+💬 ${existing.aiComment || 'Нет комментария'}
+
+✅ Прогресс за сегодня уже занесён! Возвращайся завтра 💪`,
       { parse_mode: 'Markdown', ...MAIN_KEYBOARD },
     );
   }
@@ -1379,7 +1383,7 @@ export async function startBot(): Promise<import('telegraf').Telegraf | null> {
         );
 
         const scoreEmoji = analysis.totalScore >= 70 ? '🟢' : analysis.totalScore >= 40 ? '🟡' : '🔴';
-        let reply = `${scoreEmoji} *Оценка дня: ${analysis.totalScore}/100*\n\n💬 ${analysis.overallComment}\n\n*По категориям:*\n`;
+        let reply = `✅ Прогресс за сегодня занесён!\n\n${scoreEmoji} *Оценка дня: ${analysis.totalScore}/100*\n\n💬 ${analysis.overallComment}\n\n*По категориям:*\n`;
         for (const s of analysis.subcategories) {
           const sub = goal.subcategories.find((sc) => sc.name.toLowerCase() === s.name.toLowerCase());
           reply += `${sub?.emoji ?? '•'} ${s.name}: *${s.score}/10*\n`;
