@@ -11,7 +11,6 @@ class RedisService {
   constructor() {
     this.client = new Redis(REDIS_URL, {
       maxRetriesPerRequest: 3,
-      retryDelayOnFailover: 1000,
       enableReadyCheck: true,
     });
 
