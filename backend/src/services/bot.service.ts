@@ -9,6 +9,16 @@ import { handleDashboard, buildDashPage } from './analytics-dashboard.service';
 import { handleExport } from './export.service';
 import { handleWeeklyPlanCommand } from './weekly-plan.service';
 import { sessionBackupService } from './session-backup.service';
+import {
+  createProject, getProject, listProjects, updateProject, deleteProject,
+  getProjectStats, formatProjectList, formatProjectDetail,
+} from './project.service';
+import {
+  createTask, getTask, updateTask, deleteTask, completeTask, blockTask,
+  startTimer, stopTimer, getActiveTimer, startTask,
+  getUserPendingTasks,
+} from './task.service';
+import { decomposeGoal, suggestNextTask, generateTaskCheckin, rateAIDecomposition } from './fast-tracker-ai.service';
 
 // Admin Telegram IDs (добавь своё)
 const ADMIN_IDS: string[] = (process.env.ADMIN_TELEGRAM_IDS || '').split(',').filter(Boolean);
@@ -499,6 +509,220 @@ export async function startBot(): Promise<import('telegraf').Telegraf | null> {
   bot.command('dashboard', (ctx) => handleDashboard(ctx, ADMIN_IDS));
   bot.command('export', handleExport);
   bot.command('plan', handleWeeklyPlanCommand);
+  // ─── Fast Tracker Commands ──────────────────────────────────────────────────
+  bot.command('project', async (ctx) => {
+    try {
+      const args = ctx.message.text.split(' ').slice(1);
+      const subcmd = args[0] || 'list';
+      const user = await prisma.user.findUnique({ where: { telegramId: String(ctx.from.id) } });
+      if (!user) return ctx.reply('Сначала напиши /start');
+
+      switch (subcmd) {
+        case 'create': {
+          const title = args.slice(1).join(' ');
+          if (!title) return ctx.reply(
+            'Укажи название проекта:\n`/project create "Название проекта"`',
+            { parse_mode: 'Markdown' }
+          );
+          const project = await createProject({ userId: user.id, title });
+          return ctx.reply(
+            '🎯 Проект *«' + project.title + '»* создан!\n\nИспользуй /decompose чтобы разбить его на задачи.\nСписок: /project list',
+            { parse_mode: 'Markdown' }
+          );
+        }
+        case 'list': {
+          const projects = await listProjects(user.id);
+          const stats = await getProjectStats(user.id);
+          return ctx.reply(formatProjectList(projects, stats));
+        }
+        default: {
+          const project = await getProject(subcmd, user.id);
+          if (project) {
+            const suggestion = await suggestNextTask(user.id, project.id);
+            let msg = formatProjectDetail(project);
+            if (suggestion) {
+              msg += '\n\n🎯 *Следующая задача:* ' + suggestion.suggestion;
+              msg += '\n_' + suggestion.reason + '_';
+            }
+            return ctx.reply(msg);
+          }
+          return ctx.reply('Проект не найден. Используй /project list');
+        }
+      }
+    } catch (e: any) {
+      console.error('Project command error:', e);
+      ctx.reply('⚠️ Ошибка: ' + e.message).catch(() => {});
+    }
+  });
+
+  bot.command('decompose', async (ctx) => {
+    try {
+      const args = ctx.message.text.split(' ').slice(1);
+      const goal = args.join(' ');
+      if (!goal) return ctx.reply('Напиши цель для декомпозиции:\n`/decompose Моя большая цель`', { parse_mode: 'Markdown' });
+
+      const user = await prisma.user.findUnique({ where: { telegramId: String(ctx.from.id) } });
+      if (!user) return ctx.reply('Сначала напиши /start');
+
+      await ctx.reply('🧠 Анализирую цель и декомпозирую...');
+
+      const result = await decomposeGoal(user.id, goal);
+      const tasks = result.tasks.sort((a: any, b: any) => a.order - b.order);
+
+      // Create project automatically
+      const project = await createProject({
+        userId: user.id,
+        title: goal,
+        description: result.projectDescription,
+      });
+
+      // Create all tasks
+      let taskSummary = '';
+      for (const task of tasks) {
+        const created = await createTask({
+          projectId: project.id,
+          title: task.title,
+          description: task.description,
+          priority: task.priority,
+          estimatedTime: Math.round(task.estimatedDays * 24 * 60),
+        });
+        taskSummary += '  ' + (created.sortOrder + 1) + '. [' + task.priority + '] ' + task.title + ' (~' + task.estimatedDays + ' дн.)\n';
+      }
+
+      const msg = '🎯 *Проект создан!*\n\n📌 *' + project.title + '*\n' + result.projectDescription
+        + '\n\n📋 *Задачи:*\n' + taskSummary
+        + '\nПодробнее: /project ' + project.id + '\nСписок проектов: /project list';
+
+      await ctx.reply(msg, { parse_mode: 'Markdown' });
+
+      // Ask for rating after a bit
+      setTimeout(async () => {
+        try {
+          await ctx.reply('💡 Оцени декомпозицию (1-5), это поможет мне стать умнее:\n/rate 5').catch(() => {});
+        } catch {}
+      }, 2000);
+
+      // Grant XP for creating project
+      const { awardXP } = await import('./xp.service');
+      awardXP(user.id, 'created_project').catch(() => {});
+    } catch (e: any) {
+      console.error('Decompose error:', e);
+      ctx.reply('⚠️ ' + e.message).catch(() => {});
+    }
+  });
+
+  bot.command('task', async (ctx) => {
+    try {
+      const args = ctx.message.text.split(' ').slice(1);
+      const subcmd = args[0];
+      const user = await prisma.user.findUnique({ where: { telegramId: String(ctx.from.id) } });
+      if (!user) return ctx.reply('Сначала напиши /start');
+
+      switch (subcmd) {
+        case 'add': {
+          const projectId = args[1];
+          if (!projectId) return ctx.reply('Укажи ID проекта:\n`/task add <projectId> "Название задачи"`', { parse_mode: 'Markdown' });
+          const title = args.slice(2).join(' ');
+          if (!title) return ctx.reply('Укажи название задачи');
+          const task = await createTask({ projectId, title });
+          return ctx.reply('✅ Задача *«' + task.title + '»* добавлена в проект', { parse_mode: 'Markdown' });
+        }
+        case 'start': {
+          const taskId = args[1];
+          if (!taskId) return ctx.reply('Укажи ID задачи: `/task start <id>`');
+          startTimer(String(ctx.from.id), taskId, '');
+          await startTask(taskId);
+          return ctx.reply('▶️ Таймер запущен!\nОстановить: /task stop');
+        }
+        case 'stop': {
+          const result = stopTimer(String(ctx.from.id));
+          if (!result) return ctx.reply('Нет активного таймера');
+          ctx.reply('⏹️ Таймер остановлен\n⏱️ Прошло: ' + result.durationMinutes + ' мин.').catch(() => {});
+          const { awardXP } = await import('./xp.service');
+          awardXP(user.id, 'task_time').catch(() => {});
+          break;
+        }
+        case 'done': {
+          const taskId = args[1];
+          if (!taskId) return ctx.reply('Укажи ID задачи: `/task done <id>`');
+          const actualTime = await completeTask(taskId);
+          ctx.reply('✅ Задача выполнена! Затрачено ' + actualTime + ' мин.').catch(() => {});
+          const { awardXP } = await import('./xp.service');
+          awardXP(user.id, 'task_done').catch(() => {});
+          break;
+        }
+        case 'block': {
+          const taskId = args[1];
+          const reason = args.slice(2).join(' ');
+          if (!taskId) return ctx.reply('Укажи ID задачи: `/task block <id> причина`');
+          await blockTask(taskId, reason);
+          return ctx.reply('⛔ Задача заблокирована. Напиши когда снимешь блок.');
+        }
+        case 'list': {
+          const projectId = args[1];
+          if (!projectId) {
+            const pending = await getUserPendingTasks(user.id);
+            if (pending.length === 0) return ctx.reply('Нет активных задач');
+            const lines = pending.map((t: any) =>
+              '📝 ' + t.title + ' (' + t.status + ') — проект: ' + t.project.title + '\n   /task done ' + t.id
+            );
+            return ctx.reply('📋 *Активные задачи:*\n\n' + lines.join('\n\n'), { parse_mode: 'Markdown' });
+          }
+          const tasks = await (await import('./task.service')).getProjectTasks(projectId);
+          if (tasks.length === 0) return ctx.reply('В этом проекте нет задач');
+          const lines = tasks.map((t: any) => {
+            const emoji = t.status === 'done' ? '✅' : t.status === 'in_progress' ? '🔄' : t.status === 'blocked' ? '⛔' : '📝';
+            return emoji + ' *' + t.title + '* (' + t.priority + ')\n   /task done ' + t.id + ' /task start ' + t.id;
+          });
+          return ctx.reply(lines.join('\n\n'));
+        }
+        default:
+          return ctx.reply(
+            '📋 Команды задач:\n'
+            + '/task add <projectId> "название" — добавить\n'
+            + '/task start <id> — начать таймер\n'
+            + '/task stop — остановить таймер\n'
+            + '/task done <id> — завершить\n'
+            + '/task block <id> причина — заблокировать\n'
+            + '/task list — список активных\n'
+            + '/task list <projectId> — задачи проекта'
+          );
+      }
+    } catch (e: any) {
+      console.error('Task command error:', e);
+      ctx.reply('⚠️ Ошибка: ' + e.message).catch(() => {});
+    }
+  });
+
+  bot.command('timer', async (ctx) => {
+    const user = await prisma.user.findUnique({ where: { telegramId: String(ctx.from.id) } });
+    if (!user) return ctx.reply('Сначала напиши /start');
+
+    const active = getActiveTimer(String(ctx.from.id));
+    if (active) {
+      const task = await getTask(active.taskId);
+      return ctx.reply(
+        '⏱️ *Активный таймер*\n📌 Задача: ' + (task?.title || 'неизвестно') + '\n⏰ Прошло: ' + active.elapsedMinutes + ' мин.\n\nОстановить: /task stop',
+        { parse_mode: 'Markdown' }
+      );
+    }
+    return ctx.reply('Нет активного таймера. Запусти: `/task start <id>`');
+  });
+
+  bot.command('rate', async (ctx) => {
+    try {
+      const args = ctx.message.text.split(' ').slice(1);
+      const rating = parseInt(args[0]);
+      if (!rating || rating < 1 || rating > 5) return ctx.reply('Оценка от 1 до 5: `/rate 5`');
+      const user = await prisma.user.findUnique({ where: { telegramId: String(ctx.from.id) } });
+      if (!user) return ctx.reply('Сначала напиши /start');
+      await rateAIDecomposition(user.id, rating);
+      ctx.reply('Спасибо! Оценка ' + '⭐'.repeat(rating) + ' сохранена. Это поможет мне стать лучше 🧠').catch(() => {});
+    } catch (e: any) {
+      ctx.reply('⚠️ ' + e.message).catch(() => {});
+    }
+  });
+
   bot.command('notify', async (ctx) => {
     const args = ctx.message.text.split(' ');
     const hourStr = args[1];
