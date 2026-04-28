@@ -759,7 +759,7 @@ export async function startBot(): Promise<import('telegraf').Telegraf | null> {
   );
 
   // Keyboard buttons
-  bot.hears('🎯 Поставить цель', async (ctx) => {
+  bot.hears('🎯 Новая цель', async (ctx) => {
     setSession(ctx.from!.id, { state: 'awaiting_about' });
     return ctx.reply('Расскажи о себе — чем занимаешься, сколько тебе лет?', { ...Markup.removeKeyboard() });
   });
