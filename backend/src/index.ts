@@ -53,6 +53,27 @@ async function bootstrap() {
   await app.register(entriesRoutes,  { prefix: '/api/v1' });
   await app.register(progressRoutes, { prefix: '/api/v1' });
   await app.register(adminRoutes);
+  // ─── Admin stats (inline) ───────────────────────────────────────────────────
+  app.get('/admin/stats-v2', async () => {
+    const { prisma } = require('./services/prisma.service');
+    const totalUsers = await prisma.user.count();
+    const totalGoals = await prisma.goal.count();
+    const totalEntries = await prisma.entry.count();
+    const usersWithGoals = await prisma.user.count({ where: { goals: { some: {} } } });
+    const topUsers = await prisma.user.findMany({ orderBy: { xp: 'desc' }, take: 10 });
+    const dailySignups = await prisma.$queryRawUnsafe(
+      "SELECT DATE(created_at) as day, count(*)::int as new_users FROM users GROUP BY day ORDER BY day DESC LIMIT 60"
+    );
+    return {
+      totalUsers, usersWithGoals, totalGoals, totalEntries,
+      topUsers: topUsers.map(u => ({
+        telegramId: u.telegramId, username: u.username,
+        firstName: u.firstName, xp: u.xp, created: u.createdAt
+      })),
+      dailySignups
+    };
+  });
+
 
   // ─── Health check ─────────────────────────────────────────────────────────
   app.get('/health', async () => {
