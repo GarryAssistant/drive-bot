@@ -4,6 +4,7 @@ import { prisma } from '../services/prisma.service';
 const ADMIN_SECRET = process.env.ADMIN_SECRET || 'dev-admin-secret-123';
 
 export async function adminRoutes(app: FastifyInstance) {
+  console.log("[Admin] Stats registered at /admin/stats");
   // Admin statistics endpoint
   app.get('/admin/stats', async (request, reply) => {
     const secret = (request.headers['x-admin-secret'] as string) || 
