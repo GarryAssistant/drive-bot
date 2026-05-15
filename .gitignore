@@ -1,19 +1,24 @@
-# Dependencies
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Node
 node_modules/
-*/node_modules/
-
-# Build output
-backend/dist/
-# frontend/dist committed for Railway (avoids OOM on free plan)
-
-# Environment files
-.env
-.env.local
-.env.*.local
+.next/
+dist/
 
 # Logs
 *.log
-npm-debug.log*
+logs/
+
+# Backups
+backups/
+*.bak
+*.sql
 
 # OS
 .DS_Store
@@ -22,7 +27,8 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
-*.swp
 
-# Misc
-.claude/
+# Env
+.env
+.env.local
+.env.production
