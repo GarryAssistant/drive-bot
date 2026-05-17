@@ -88,7 +88,7 @@ export async function adminRoutes(app: FastifyInstance) {
       { id: 3, name: 'Мастер', minXP: 5000 },
       { id: 4, name: 'Легенда', minXP: 20000 },
     ];
-    const levelDist = [];
+    const levelDist: any[] = [];
     const users = await prisma.user.findMany({ select: { xp: true } });
     for (const lv of levels) {
       const nextMin = levels.find(l => l.id === lv.id + 1)?.minXP ?? Infinity;
@@ -103,7 +103,7 @@ export async function adminRoutes(app: FastifyInstance) {
         conversionToGoal: parseFloat(conversionRate),
         totalGoals,
         totalEntries,
-        avgScore: parseFloat(avgScore),
+        avgScore: Number(avgScore),
         mostUsedNotifyHour: mostUsedHour,
       },
       activity: {
