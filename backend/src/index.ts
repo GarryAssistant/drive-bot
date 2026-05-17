@@ -54,6 +54,33 @@ async function bootstrap() {
   await app.register(progressRoutes, { prefix: '/api/v1' });
   await app.register(adminRoutes);
 
+  // ─── Inline analytics endpoint (no import deps) ──────────────────────────
+  app.get('/admin/dashboard', async (request, reply) => {
+    const secret = (request.headers['x-admin-secret'] as string) || 
+                   (request.query as any).secret;
+    if (secret !== (process.env.ADMIN_SECRET || 'dev-admin-secret-123')) {
+      return reply.status(401).send({ error: 'Unauthorized' });
+    }
+    const { prisma } = require('./services/prisma.service');
+    const now = new Date();
+    const day1 = new Date(now.getTime() - 86400000);
+    const day7 = new Date(now.getTime() - 7 * 86400000);
+    const day30 = new Date(now.getTime() - 30 * 86400000);
+    const [totalUsers, usersWithGoal, usersDAU, usersWAU, usersMAU, totalGoals, totalEntries] = await Promise.all([
+      prisma.user.count(),
+      prisma.user.count({ where: { goals: { some: { isActive: true } } } }),
+      prisma.user.count({ where: { entries: { some: { createdAt: { gte: day1 } } } } }),
+      prisma.user.count({ where: { entries: { some: { createdAt: { gte: day7 } } } } }),
+      prisma.user.count({ where: { entries: { some: { createdAt: { gte: day30 } } } } }),
+      prisma.goal.count(),
+      prisma.entry.count(),
+    ]);
+    const usersOlderThan7d = await prisma.user.count({ where: { createdAt: { lte: day7 } } });
+    const returned7d = usersOlderThan7d > 0 ? await prisma.user.count({ where: { createdAt: { lte: day7 }, entries: { some: { createdAt: { gte: day7 } } } }}) : 0;
+    const retention7d = usersOlderThan7d > 0 ? ((returned7d / usersOlderThan7d) * 100).toFixed(1) : 'N/A';
+    return { totalUsers, usersWithActiveGoal: usersWithGoal, dau: usersDAU, wau: usersWAU, mau: usersMAU, totalGoals, totalEntries, retention7d: retention7d === 'N/A' ? null : parseFloat(retention7d) };
+  });
+
   
 
 
