@@ -10,7 +10,7 @@ import { authRoutes } from './routes/auth.routes';
 import { goalsRoutes } from './routes/goals.routes';
 import { entriesRoutes } from './routes/entries.routes';
 import { progressRoutes } from './routes/progress.routes';
-import { adminRoutes } from './routes/admin.routes';
+// import { adminRoutes } from './routes/admin.routes';
 import { prisma } from './services/prisma.service';
 import { scheduleDailyReminder, scheduleWeeklyReport, scheduleWeeklyPlan, scheduleMorningDigest } from './services/notification.service';
 import { startBot } from './services/bot.service';
@@ -52,7 +52,7 @@ async function bootstrap() {
   await app.register(goalsRoutes,    { prefix: '/api/v1' });
   await app.register(entriesRoutes,  { prefix: '/api/v1' });
   await app.register(progressRoutes, { prefix: '/api/v1' });
-  await app.register(adminRoutes);
+  // await app.register(adminRoutes);
 
   // ─── Inline analytics endpoint (no import deps) ──────────────────────────
   app.get('/admin/dashboard', async (request, reply) => {
