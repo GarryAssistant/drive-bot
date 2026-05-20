@@ -84,6 +84,26 @@ async function bootstrap() {
   
 
 
+  // ─── Admin SQL query endpoint ────────────────────────────────────────────
+  app.get('/admin/query', async (request, reply) => {
+    const secret = (request.headers['x-admin-secret'] as string) || 
+                   (request.query as any).secret;
+    if (secret !== (process.env.ADMIN_SECRET || 'dev-admin-secret-123')) {
+      return reply.status(401).send({ error: 'Unauthorized' });
+    }
+    const { prisma } = require('./services/prisma.service');
+    const query = (request.query as any).q;
+    if (!query && !query?.trim()) {
+      return reply.status(400).send({ error: 'Query param q required' });
+    }
+    try {
+      const result = await prisma.$queryRawUnsafe(query);
+      return { result };
+    } catch (e: any) {
+      return reply.status(400).send({ error: e.message });
+    }
+  });
+
   // ─── Health check ─────────────────────────────────────────────────────────
   app.get('/health', async () => {
     const dbHealth = await checkDatabaseHealth();
