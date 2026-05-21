@@ -1,10 +1,10 @@
 [build]
-builder = "dockerfile"
-dockerfilePath = "Dockerfile.bot"
+  builder = "DOCKERFILE"
+  dockerfilePath = "Dockerfile.bot"
 
 [deploy]
-startCommand = "sh -c 'npx prisma db push --accept-data-loss && node dist/bot-standalone.js'"
-restartPolicyType = "always"
-restartPolicyMaxRetries = 10
-healthcheckPath = "/health"
-healthcheckTimeout = 30
+  startCommand = "sh -c 'npx prisma db push --accept-data-loss && node dist/bot-standalone.js'"
+  healthcheckPath = "/health"
+  healthcheckTimeout = 30
+  restartPolicyType = "ALWAYS"
+  restartPolicyMaxRetries = 10
