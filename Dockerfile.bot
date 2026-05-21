@@ -1,9 +1,6 @@
 FROM node:20-slim AS builder
 
-ARG BUILD_TIMESTAMP
-RUN echo "Build timestamp: ${BUILD_TIMESTAMP}"
-
-WORKDIR /app
+WORKDIR /app/backend
 COPY backend/package*.json ./
 RUN npm ci --legacy-peer-deps
 
@@ -15,11 +12,14 @@ FROM node:20-slim
 
 RUN apt-get update -y && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+WORKDIR /app/backend
 
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/backend/dist ./dist
+COPY --from=builder /app/backend/node_modules ./node_modules
+COPY --from=builder /app/backend/package.json ./package.json
+COPY --from=builder /app/backend/prisma ./prisma
 
+EXPOSE 3000
+
+# Использую простую команду
 CMD ["sh", "-c", "npx prisma db push --accept-data-loss && node dist/bot-standalone.js"]
