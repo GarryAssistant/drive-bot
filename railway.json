@@ -5,8 +5,10 @@
   },
   "deploy": {
     "numReplicas": 1,
-    "startCommand": "npx prisma db push --accept-data-loss && node dist/bot-standalone.js",
+    "startCommand": "cd backend && npx prisma db push --accept-data-loss && node dist/bot-standalone.js",
     "healthcheckPath": "/health",
-    "restartPolicyType": "ALWAYS"
+    "restartPolicyType": "ALWAYS",
+    "healthcheckTimeout": 30,
+    "restartPolicyMaxRetries": 10
   }
 }
