@@ -3,7 +3,7 @@
   dockerfilePath = "Dockerfile.bot"
 
 [deploy]
-  startCommand = "sh -c 'npx prisma db push --accept-data-loss && node dist/bot-standalone.js'"
+  startCommand = "npx prisma db push --accept-data-loss && node dist/bot-standalone.js"
   healthcheckPath = "/health"
   healthcheckTimeout = 30
   restartPolicyType = "ALWAYS"
